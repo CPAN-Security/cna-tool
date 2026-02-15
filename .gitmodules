@@ -1,0 +1,3 @@
+[submodule "cve-schema"]
+	path = cve-schema
+	url = https://github.com/CVEProject/cve-schema

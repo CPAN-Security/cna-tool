@@ -1,0 +1,20 @@
+#!/usr/bin/env perl
+
+use strict;
+use v5.42;
+
+use FindBin qw($Bin);
+use File::Spec ();
+
+use lib File::Spec->catdir($Bin, '..', 'lib');
+use CPANSec::CNA::App ();
+
+my $app = CPANSec::CNA::App->new;
+my $rc = eval { $app->run(@ARGV) };
+if (!defined $rc) {
+  my $e = $@ || 'unknown error';
+  chomp $e;
+  warn "ERROR: $e\n";
+  exit 2;
+}
+exit $rc;

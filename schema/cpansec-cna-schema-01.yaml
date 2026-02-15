@@ -1,0 +1,160 @@
+type: object
+required:
+  - cpansec
+properties:
+  cpansec:
+    type: object
+    additionalProperties: false
+    required:
+      - cve
+      - distribution
+      - module
+      - author
+      - affected
+      - title
+      - description
+      - references
+    properties:
+      cve:
+        type: string
+        pattern: "^CVE-[0-9]{4}-[0-9]{4,19}$"
+      distribution:
+        type: string
+        pattern: "^[A-Za-z0-9_-]+$"
+
+      module:
+        type: string
+        pattern: "^[A-Za-z0-9_:]+$"
+
+      author:
+        type: string
+        pattern: "^[A-Z0-9]+$"
+
+      repo:
+        type: string
+        format: uri
+
+      affected:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          type: string  # Format like "9.19 <= 9.31" (semantic version range)
+          pattern: "^(([^\\s]+\\s*(<=|<)\\s*[^\\s]+)|((<=|<)\\s*[^\\s]+)|([^\\s]+))$"
+
+      title:
+        type: string
+
+      cwes:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+          pattern: "^CWE-[0-9]+(?:\\s*:\\s*|\\s+).*\\S.*$"
+
+      files:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+
+      routines:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+
+
+      description:
+        type: string
+
+      solution:
+        oneOf:
+          - type: string
+          - type: array
+            items:
+              type: string
+
+      mitigation:
+        oneOf:
+          - type: string
+          - type: array
+            items:
+              type: string
+
+      credits:
+        type: array
+        items:
+          type: object
+          required:
+            - type
+            - value
+          additionalProperties: false
+          properties:
+            lang:
+              type: string
+            type:
+              type: string
+            value:
+              type: string
+
+      impacts:
+        type: array
+        uniqueItems: true
+        items:
+          type: string
+          pattern: "^CAPEC-[0-9]+ [A-Za-z0-9 -.,]+$"
+
+      timeline:
+        type: array
+        items:
+          type: object
+          required:
+            - time
+            - value
+          additionalProperties: false
+          properties:
+            time:
+              type: string
+              pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}(T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})?)?$"
+            value:
+              type: string
+
+      references:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          type: object
+          required:
+            - link
+          additionalProperties: false
+          properties:
+            link:
+              type: string
+              format: uri
+            name:
+              type: string
+              minLength: 1
+              maxLength: 512
+            tags:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items:
+                type: string
+                enum:
+                  - exploit
+                  - mailing-list
+                  - advisory
+                  - vendor-advisory
+                  - article
+                  - misc
+                  - patch
+                  - related
+                  - issue-tracking
+                  - release-notes
+                  - technical-description
+                  - mitigation
+                  - third-party-advisory
+                  - vdb-entry
