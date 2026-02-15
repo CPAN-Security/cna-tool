@@ -35,7 +35,7 @@ close($fh);
 
 my ($emit_err_fh, $emit_err) = tempfile();
 close($emit_err_fh);
-my $out = qx(scripts/cna --cpansec-cna-root '$root' emit $cve --cna-only 2>'$emit_err');
+my $out = qx(scripts/cna --cpansec-cna-root '$root' emit $cve --cna-container-only 2>'$emit_err');
 my $rc = $? >> 8;
 is($rc, 0, 'emit succeeds with multiple affected version ranges');
 

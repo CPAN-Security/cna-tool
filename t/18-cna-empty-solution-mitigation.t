@@ -42,7 +42,7 @@ like($check_out, qr/missing_solution_or_mitigation/, 'empty blocks are treated a
 
 my ($emit_err_fh, $emit_err) = tempfile();
 close($emit_err_fh);
-my $json_out = qx(scripts/cna --cpansec-cna-root '$root' emit $cve --cna-only 2>'$emit_err');
+my $json_out = qx(scripts/cna --cpansec-cna-root '$root' emit $cve --cna-container-only 2>'$emit_err');
 my $json_rc = $? >> 8;
 is($json_rc, 0, 'emit succeeds');
 my $cna = decode_json($json_out);

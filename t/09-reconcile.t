@@ -106,7 +106,7 @@ close($enc_fh);
 my $out_enc = qx(scripts/cna --cpansec-cna-root '$enc_root' reconcile 2>&1);
 my $rc_enc = $? >> 8;
 is($rc_enc, 0, 'reconcile ignores encrypted-only records when no cves/ records exist');
-like($out_enc, qr/No local CVE records found under cves\/\*\.\{yaml,yml,json\}/, 'status message scopes reconcile to cves/');
+like($out_enc, qr/No local CVE records found under cves\/\*\.\{yaml,json\}/, 'status message scopes reconcile to cves/');
 
 done_testing();
 

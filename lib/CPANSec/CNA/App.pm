@@ -69,10 +69,10 @@ Commands:
   init [--force] [--encrypted] <CVE-ID> <Module::Name>
                                     Create/initialize cves/<CVE-ID>.yaml (or encrypted/)
   check [CVE-ID] [--changed] [--format text|github] [--strict]
-                                    Validate YAML + lint findings
+                                    Validate YAML + lint findings (and JSON drift if present)
   build [CVE-ID] [--strict] [--force]
                                     Validate/lint and write <CVE-ID>.json next to source YAML
-  emit [CVE-ID] [--strict] [--cna-only]
+  emit [CVE-ID] [--strict] [--cna-container-only]
                                     Validate/lint and print generated JSON to stdout
   announce [CVE-ID] [--write|--output path] [--force]
                                     Render announcement text to stdout or file
@@ -282,7 +282,7 @@ USAGE
     my $cve_obj = CPANSec::CVE->from_yaml_file($yaml);
     my $json = $cve_obj->to_cve5_json;
 
-    (my $json_file = $yaml) =~ s/\.ya?ml$/.json/i;
+    (my $json_file = $yaml) =~ s/\.yaml$/.json/i;
     if (-f $json_file && !$opt{force}) {
       die "Aborted.\n" unless $self->_confirm("$json_file exists. Overwrite?", 0);
     }
@@ -297,17 +297,17 @@ USAGE
   }
 
   method _cmd_emit (@args) {
-    my %opt = (strict => 0, cna_only => 0);
+    my %opt = (strict => 0, cna_container_only => 0);
     my @positionals;
 
     while (@args) {
       my $a = shift @args;
       if ($a eq '--strict') { $opt{strict} = 1; next; }
-      if ($a eq '--cna-only') { $opt{cna_only} = 1; next; }
+      if ($a eq '--cna-container-only') { $opt{cna_container_only} = 1; next; }
       push @positionals, $a;
     }
 
-    die "Usage: cna emit [CVE-ID] [--strict] [--cna-only]\n" unless @positionals <= 1;
+    die "Usage: cna emit [CVE-ID] [--strict] [--cna-container-only]\n" unless @positionals <= 1;
     my $cve = $positionals[0] // $self->_default_cve_from_context
       // die "No CVE provided and no default found (set CPANSEC_CNA_CVE or use a CVE-prefixed branch name).\n";
     my $yaml = $self->_find_yaml_for_cve($cve);
@@ -323,7 +323,7 @@ USAGE
     }
 
     my $cve_obj = CPANSec::CVE->from_yaml_file($yaml);
-    my $json = $opt{cna_only} ? $cve_obj->to_cna_container_json : $cve_obj->to_cve5_json;
+    my $json = $opt{cna_container_only} ? $cve_obj->to_cna_container_json : $cve_obj->to_cve5_json;
     print $json;
     return 0;
   }
@@ -432,7 +432,7 @@ USAGE
     }
 
     if (!@ids) {
-      print "No local CVE records found under cves/*.{yaml,yml,json}\n";
+      print "No local CVE records found under cves/*.{yaml,json}\n";
       return 0;
     }
 
@@ -499,6 +499,9 @@ USAGE
       } else {
         my $lint_findings = $lint->run_model($cve_obj->model, path => $yaml);
         push @findings, @$lint_findings;
+        if (my $json_sync = $self->_check_yaml_json_sync($yaml, $cve_obj)) {
+          push @findings, $json_sync;
+        }
       }
 
       for my $f (@findings) {
@@ -540,12 +543,10 @@ USAGE
     }
 
     my @files = glob('cves/*.yaml');
-    push @files, glob('cves/*.yml');
     push @files, glob('encrypted/*.yaml');
-    push @files, glob('encrypted/*.yml');
     @files = sort grep { -f $_ } @files;
     for my $f (@files) {
-      if ($f =~ m{^encrypted/([^/]+)\.ya?ml$}i) {
+      if ($f =~ m{^encrypted/([^/]+)\.yaml$}i) {
         $self->_mark_encrypted_context($1, $f);
       }
     }
@@ -562,10 +563,10 @@ USAGE
     my @files;
     for my $f (@cand) {
       chomp $f;
-      next unless $f =~ m{^(cves|encrypted)/.+\.ya?ml$}i;
+      next unless $f =~ m{^(cves|encrypted)/.+\.yaml$}i;
       next unless -f $f;
       next if $seen{$f}++;
-      if ($f =~ m{^encrypted/([^/]+)\.ya?ml$}i) {
+      if ($f =~ m{^encrypted/([^/]+)\.yaml$}i) {
         $self->_mark_encrypted_context($1, $f);
       }
       push @files, $f;
@@ -575,7 +576,7 @@ USAGE
 
   method _find_yaml_for_cve ($cve) {
     die "CVE must match CVE-YYYY-NNNN format\n" unless $cve =~ /^CVE-\d{4}-\d{4,19}$/;
-    my $path = $self->_resolve_cve_path($cve, qw(yaml yml));
+    my $path = $self->_resolve_cve_path($cve, qw(yaml));
     die "Cannot find YAML for $cve under cves/ or encrypted/\n" unless defined $path;
     return $path;
   }
@@ -598,7 +599,7 @@ USAGE
     if ($arg =~ /^CVE-\d{4}-\d{4,19}$/) {
       my $json = $self->_resolve_cve_path($arg, qw(json));
       if (!defined $json) {
-        my $yaml_existing = $self->_resolve_cve_path($arg, qw(yaml yml));
+        my $yaml_existing = $self->_resolve_cve_path($arg, qw(yaml));
         if (defined $yaml_existing && $yaml_existing =~ m{^encrypted/}) {
           $json = File::Spec->catfile('encrypted', "$arg.json");
         } else {
@@ -629,13 +630,12 @@ USAGE
 
   method _local_cve_ids () {
     my @files = glob('cves/*.yaml');
-    push @files, glob('cves/*.yml');
     push @files, glob('cves/*.json');
     @files = sort grep { -f $_ } @files;
     my %seen;
     my @ids;
     for my $f (@files) {
-      my ($id) = $f =~ m{/(CVE-\d{4}-\d{4,19})\.(?:json|ya?ml)$}i;
+      my ($id) = $f =~ m{/(CVE-\d{4}-\d{4,19})\.(?:json|yaml)$}i;
       next unless $id =~ /^CVE-\d{4}-\d{4,19}$/;
       if (exists $seen{$id} && $seen{$id} ne $f) {
         # multiple representations for same CVE in one base are acceptable
@@ -665,7 +665,7 @@ USAGE
   }
 
   method _load_local_cve_for_reconcile ($cve) {
-    my @cves_yaml = grep { -f $_ } (File::Spec->catfile('cves', "$cve.yaml"), File::Spec->catfile('cves', "$cve.yml"));
+    my @cves_yaml = grep { -f $_ } (File::Spec->catfile('cves', "$cve.yaml"));
     my @cves_json = grep { -f $_ } (File::Spec->catfile('cves', "$cve.json"));
 
     if (@cves_yaml) {
@@ -678,7 +678,7 @@ USAGE
       return (_read_json_file($cves_json[0]), $cves_json[0]);
     }
 
-    die "Missing local CVE source for $cve under cves/ (yaml/yml/json)\n";
+    die "Missing local CVE source for $cve under cves/ (yaml/json)\n";
   }
 
   method _fetch_remote_cve ($cve, $api_base) {
@@ -734,6 +734,53 @@ USAGE
     my @diff = $self->_run_cmd_capture_any('diff', '-u', '--label', $left_name, '--label', $right_name, $lfile, $rfile);
     my $txt = join('', @diff);
     return (0, $txt);
+  }
+
+  method _check_yaml_json_sync ($yaml, $cve_obj) {
+    return undef unless $yaml =~ m{^cves/.+\.yaml$}i;
+    (my $json_file = $yaml) =~ s/\.yaml$/.json/i;
+    return undef unless -f $json_file;
+
+    my $local_json = eval { _read_json_file($json_file) };
+    if (!$local_json) {
+      my $err = $@ || 'unknown JSON parse error';
+      chomp $err;
+      return {
+        severity => 'warning',
+        id => 'json_unreadable',
+        message => "Cannot parse existing JSON file $json_file: $err",
+        path => $json_file,
+        line => 1,
+      };
+    }
+
+    my $generated_json = decode_json($cve_obj->to_cve5_json);
+    my $json = JSON::PP->new->canonical;
+
+    my $local_projection = eval { CPANSec::CVE::CVE2YAML::_project_roundtrip_view($local_json) };
+    if (!$local_projection) {
+      my $err = $@ || 'unknown projection error';
+      chomp $err;
+      return {
+        severity => 'warning',
+        id => 'json_unreadable',
+        message => "Cannot project existing JSON file $json_file into round-trip view: $err",
+        path => $json_file,
+        line => 1,
+      };
+    }
+    my $generated_projection = CPANSec::CVE::CVE2YAML::_project_roundtrip_view($generated_json);
+    return undef if $json->encode($local_projection) eq $json->encode($generated_projection);
+
+    my ($cve) = basename($yaml) =~ /^(CVE-\d{4}-\d{4,19})\.yaml$/i;
+    my $hint = defined($cve) ? "run `cna build $cve`" : "run `cna build`";
+    return {
+      severity => 'warning',
+      id => 'json_out_of_date',
+      message => "JSON file $json_file is not in sync with $yaml; $hint to refresh it.",
+      path => $yaml,
+      line => 1,
+    };
   }
 
   method _yaml_stub (%in) {

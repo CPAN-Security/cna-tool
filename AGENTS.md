@@ -115,7 +115,7 @@ The tooling is being prepared to move to a separate project. This guide is the h
   - Writes `cves/CVE-YYYY-NNNN.json`.
 - Emit/stdout only:
   - `cpansec-cna emit CVE-YYYY-NNNN`
-  - `cpansec-cna emit CVE-YYYY-NNNN --cna-only`
+  - `cpansec-cna emit CVE-YYYY-NNNN --cna-container-only`
   - Never writes to `cves/`.
 
 ### 5. Announcement Generation
@@ -133,7 +133,7 @@ The tooling is being prepared to move to a separate project. This guide is the h
 ### 7. Reconcile Local vs cve.org
 - `cpansec-cna reconcile [CVE-ID]`
 - Compares local `containers.cna` vs API record.
-- Reconcile only considers local records under `cves/` (yaml/yml/json).
+- Reconcile only considers local records under `cves/` (yaml/json).
 - Reconcile does not read from `encrypted/`.
 - Ignores provider metadata drift during compare.
 - Reports:
@@ -212,6 +212,7 @@ Key modules:
 YAML validation:
 - Local schema: `schema/cpansec-cna-schema-01.yaml`
 - YAML files include language-server hint comment for editor tooling.
+- Only `.yaml` source files are supported (`.yml` is intentionally ignored).
 
 JSON validation:
 - Prefer upstream schema refs from `cve-schema/schema/`.
@@ -337,7 +338,7 @@ When changing schema/lint:
 - `cpansec-cna init [--force] [--encrypted] <CVE> <Module>`
 - `cpansec-cna check [CVE] [--changed] [--format text|github] [--strict]`
 - `cpansec-cna build [CVE] [--strict] [--force]`
-- `cpansec-cna emit [CVE] [--strict] [--cna-only]`
+- `cpansec-cna emit [CVE] [--strict] [--cna-container-only]`
 - `cpansec-cna announce [CVE] [--write|--output PATH] [--force]`
 - `cpansec-cna import <CVE|PATH.json> [--force] [--no-guard]`
 - `cpansec-cna reconcile [CVE] [--api-base URL] [--verbose]`

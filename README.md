@@ -72,6 +72,9 @@ scripts/cna init --encrypted CVE-2026-12345 Some::Module
 scripts/cna check CVE-2026-12345
 ```
 
+If `cves/<CVE>.json` exists, `check` also verifies it matches the current YAML
+projection and warns with `json_out_of_date` when stale.
+
 Changed files only:
 
 ```bash
@@ -96,7 +99,7 @@ Emit to stdout only:
 
 ```bash
 scripts/cna emit CVE-2026-12345
-scripts/cna emit CVE-2026-12345 --cna-only
+scripts/cna emit CVE-2026-12345 --cna-container-only
 ```
 
 ### 5. Announcement Text
@@ -158,6 +161,8 @@ scripts/cna reconcile --verbose
 ## YAML Authoring Notes
 
 `init` generates a stub with required fields and commented optionals.
+
+Only `.yaml` is supported for CVE YAML files (`.yml` is ignored).
 
 Optional sections are shown as comments (not pre-populated), including:
 - `cwes`
@@ -244,7 +249,7 @@ For commands that accept optional CVE (`check/build/emit/announce/reconcile` sin
 scripts/cna init [--force] [--encrypted] <CVE> <Module>
 scripts/cna check [CVE] [--changed] [--format text|github] [--strict]
 scripts/cna build [CVE] [--strict] [--force]
-scripts/cna emit [CVE] [--strict] [--cna-only]
+scripts/cna emit [CVE] [--strict] [--cna-container-only]
 scripts/cna announce [CVE] [--write|--output PATH] [--force]
 scripts/cna import <CVE|PATH.json> [--force] [--no-guard]
 scripts/cna reconcile [CVE] [--api-base URL] [--verbose]
