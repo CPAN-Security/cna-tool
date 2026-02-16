@@ -76,7 +76,7 @@ Commands:
                                     Validate/lint and print generated JSON to stdout
   announce [CVE-ID] [--write|--output path] [--force]
                                     Render announcement text to stdout or file
-  import <CVE-ID|path.json> [--force] [--no-guard]
+  import [CVE-ID|path.json] [--force] [--no-guard]
                                     Convert CVE JSON to YAML macro with round-trip guard
   reconcile [CVE-ID] [--api-base URL]
                                     Compare local CNA container with published CVE JSON
@@ -385,10 +385,17 @@ USAGE
       push @positionals, $a;
     }
 
-    die "Usage: cna import <CVE-ID|path.json> [--force] [--no-guard]\n"
-      unless @positionals == 1;
+    die "Usage: cna import [CVE-ID|path.json] [--force] [--no-guard]\n"
+      unless @positionals <= 1;
 
-    my ($json_path, $yaml_path) = $self->_resolve_import_paths($positionals[0]);
+    my $target = $positionals[0];
+    if (!defined $target) {
+      my $cve = $self->_default_cve_from_context
+        // die "No CVE provided and no default found (set CPANSEC_CNA_CVE or use a CVE-prefixed branch name).\n";
+      $target = $cve;
+    }
+
+    my ($json_path, $yaml_path) = $self->_resolve_import_paths($target);
     die "Cannot read JSON input $json_path\n" unless -f $json_path;
 
     if (-f $yaml_path && !$opt{force}) {
