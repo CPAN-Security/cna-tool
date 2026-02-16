@@ -32,6 +32,7 @@ jobs:
           fi
 
       - name: Check changed CVEs with cna (flake)
+        id: cna_check
         shell: bash
         run: |
           set -euo pipefail
@@ -61,13 +62,43 @@ jobs:
           )
 
           status=0
+          summary_tmp="$(mktemp)"
+          echo "## CVE PR Check results" > "$summary_tmp"
+
           for cve in "${cves[@]}"; do
             echo
             echo "Checking $cve"
+            out_tmp="$(mktemp)"
+            echo "::group::check $cve"
             if ! nix run github:CPAN-Security/cna-tool#cna -- \
-              check "$cve" --format github --pr-policy --base-sha "$base_sha"; then
+              check "$cve" --format github --pr-policy --base-sha "$base_sha" \
+              2>&1 | tee "$out_tmp"; then
               status=1
             fi
+            echo "::endgroup::"
+
+            errors="$(grep -c '^::error ' "$out_tmp" || true)"
+            warnings="$(grep -c '^::warning ' "$out_tmp" || true)"
+            echo "- \`$cve\`: **${errors} error(s)**, ${warnings} warning(s)" >> "$summary_tmp"
+            if [ "$errors" -gt 0 ]; then
+              echo "  - Blocking findings:" >> "$summary_tmp"
+              grep '^::error ' "$out_tmp" \
+                | sed -E 's/^::error [^:]*::/- /' >> "$summary_tmp" || true
+            fi
+            if [ "$warnings" -gt 0 ]; then
+              echo "  - Warnings:" >> "$summary_tmp"
+              grep '^::warning ' "$out_tmp" \
+                | sed -E 's/^::warning [^:]*::/- /' >> "$summary_tmp" || true
+            fi
+            rm -f "$out_tmp"
           done
+
+          cat "$summary_tmp" >> "$GITHUB_STEP_SUMMARY"
+          cp "$summary_tmp" .cna-pr-summary.md
+          rm -f "$summary_tmp"
+
+          if [ "$status" -ne 0 ]; then
+            echo "::error title=CVE PR check failed::Blocking CVE findings found. See Step Summary."
+          fi
 
           exit "$status"
