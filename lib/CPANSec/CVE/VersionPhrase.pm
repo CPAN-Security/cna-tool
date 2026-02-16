@@ -17,12 +17,16 @@ sub phrase_from_affected_expr ($expr) {
   $s =~ s/^\s+|\s+$//g;
 
   if ($s =~ /^(\S+)\s*<=\s*(\S+)$/) {
-    return "from $1" if $2 eq '*';
-    return "from $1 through $2";
+    my ($from, $to) = ($1, $2);
+    return '' if _is_zero_start($from) && $to eq '*';
+    return "from $from" if $to eq '*';
+    return _is_zero_start($from) ? "through $to" : "from $from through $to";
   }
   if ($s =~ /^(\S+)\s*<\s*(\S+)$/) {
-    return "from $1" if $2 eq '*';
-    return "from $1 before $2";
+    my ($from, $to) = ($1, $2);
+    return '' if _is_zero_start($from) && $to eq '*';
+    return "from $from" if $to eq '*';
+    return _is_zero_start($from) ? "before $to" : "from $from before $to";
   }
   if ($s =~ /^<=\s*(\S+)$/) {
     return "through $1";
@@ -50,14 +54,16 @@ sub phrase_from_cve_version ($v) {
   my $from = $v->{version} // '';
 
   if (defined $v->{lessThanOrEqual}) {
+    return '' if ($from && _is_zero_start($from) && $v->{lessThanOrEqual} eq '*');
     return "from $from" if ($from && $v->{lessThanOrEqual} eq '*');
-    return ($from && $from ne '0')
+    return ($from && !_is_zero_start($from))
       ? "from $from through $v->{lessThanOrEqual}"
       : "through $v->{lessThanOrEqual}";
   }
   if (defined $v->{lessThan}) {
+    return '' if ($from && _is_zero_start($from) && $v->{lessThan} eq '*');
     return "from $from" if ($from && $v->{lessThan} eq '*');
-    return ($from && $from ne '0')
+    return ($from && !_is_zero_start($from))
       ? "from $from before $v->{lessThan}"
       : "before $v->{lessThan}";
   }
@@ -69,6 +75,10 @@ sub phrases_from_cve_versions ($versions) {
   return () unless ref($versions) eq 'ARRAY' && @$versions;
   my @phrases = map { phrase_from_cve_version($_) } @$versions;
   return grep { length $_ } @phrases;
+}
+
+sub _is_zero_start ($v) {
+  return defined($v) && $v eq '0' ? 1 : 0;
 }
 
 1;
