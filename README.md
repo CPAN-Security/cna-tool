@@ -2,6 +2,28 @@
 
 `cna` is a workflow CLI for maintaining CPANSec CNA CVE records.
 
+## Quick Start (Flakes)
+
+Run directly from GitHub using flakes:
+
+```bash
+nix run github:CPAN-Security/cna-tool#cna -- help
+```
+
+Against a separate data repo:
+
+```bash
+nix run github:CPAN-Security/cna-tool#cna -- \
+  --cpansec-cna-root /path/to/cpansec-cna-cve check CVE-2025-40906
+```
+
+Or with environment variable:
+
+```bash
+CPANSEC_CNA_ROOT=/path/to/cpansec-cna-cve \
+  nix run github:CPAN-Security/cna-tool#cna -- check CVE-2025-40906
+```
+
 It helps you:
 - initialize CVE YAML records
 - validate/lint authoring quality
@@ -17,6 +39,20 @@ This repository also contains CVE data (`cves/`, `reserved/`, `announce/`, `encr
 - Perl `v5.42`
 - Project dependencies installed in your environment
 - Git repository checkout (branch-aware behavior is built in)
+
+## Using `cpanfile` (Local Checkout)
+
+For a local checkout, install dependencies from `cpanfile` with `cpm`:
+
+```bash
+cpm install --with-test --show-build-log-on-failure
+```
+
+Then run tests:
+
+```bash
+prove -lr t
+```
 
 ## Command
 
