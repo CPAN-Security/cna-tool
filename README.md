@@ -24,6 +24,20 @@ CPANSEC_CNA_ROOT=/path/to/cpansec-cna-cve \
   nix run github:CPAN-Security/cna-tool#cna -- check CVE-2025-40906
 ```
 
+Install into your user profile (common usage pattern):
+
+```bash
+nix profile install github:CPAN-Security/cna-tool#cna
+cna --help
+```
+
+Upgrade/remove later:
+
+```bash
+nix profile upgrade github:CPAN-Security/cna-tool#cna
+nix profile remove github:CPAN-Security/cna-tool#cna
+```
+
 It helps you:
 - initialize CVE YAML records
 - validate/lint authoring quality
