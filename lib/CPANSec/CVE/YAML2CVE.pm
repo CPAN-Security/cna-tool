@@ -28,13 +28,8 @@ sub default_cve_schema_path () {
   my $submodule_schema = File::Spec->catfile("cve-schema", "schema", "CVE_Record_Format.json");
   return $submodule_schema if -f $submodule_schema;
 
-  my $root_schema = File::Spec->catfile("cve-record-format-5.2.0.json");
-  return $root_schema if -f $root_schema;
-
   my $module_submodule = File::Spec->catfile(_module_project_root(), "cve-schema", "schema", "CVE_Record_Format.json");
-  return $module_submodule if -f $module_submodule;
-
-  return File::Spec->catfile(_module_project_root(), "cve-record-format-5.2.0.json");
+  return $module_submodule;
 }
 
 sub _module_project_root () {

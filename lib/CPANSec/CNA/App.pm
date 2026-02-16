@@ -591,7 +591,7 @@ USAGE
 
     my $branch = $self->_git_current_branch;
     return undef unless defined $branch && length $branch;
-    return $1 if $branch =~ /^(CVE-\d{4}-\d{4,19})(?:--|$)/;
+    return $1 if $branch =~ /^(CVE-\d{4}-\d{4,19})(?:--|-|$)/;
     return undef;
   }
 

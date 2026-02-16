@@ -31,8 +31,10 @@ class CPANSec::CVE::CVE2YAML {
       my $json = JSON::PP->new->canonical;
       my $a = $json->encode($source_projection);
       my $b = $json->encode($rebuilt_projection);
-      die "JSON->YAML round-trip guard failed: source/rebuilt projections differ\n"
-        if $a ne $b;
+      if ($a ne $b) {
+        my $diff = _projection_diff_text($source_projection, $rebuilt_projection);
+        die "JSON->YAML round-trip guard failed: source/rebuilt projections differ\n$diff\n";
+      }
     }
 
     return $yaml;
@@ -45,34 +47,36 @@ class CPANSec::CVE::CVE2YAML {
 
     my %cp = (
       cve => $doc->{cveMetadata}{cveId},
-      distribution => $aff->{packageName} // '',
-      module => $aff->{product} // '',
-      author => $aff->{vendor} // '',
+      distribution => _normalize_import_text($aff->{packageName} // ''),
+      module => _normalize_import_text($aff->{product} // ''),
+      author => _normalize_import_text($aff->{vendor} // ''),
       affected => [ map { _version_to_expr($_) } @{$aff->{versions} // []} ],
-      title => $cna->{title} // '',
-      description => _first_en_value($cna->{descriptions}),
+      title => _normalize_import_text($cna->{title} // ''),
+      description => _normalize_import_text(_first_en_value($cna->{descriptions})),
       references => [ map { _reference_to_cpansec($_) } @{$cna->{references} // []} ],
     );
 
-    $cp{repo} = $aff->{repo} if defined $aff->{repo} && length $aff->{repo};
+    if (defined $aff->{repo} && length $aff->{repo}) {
+      $cp{repo} = _normalize_import_text($aff->{repo});
+    }
 
     if (ref($aff->{programFiles}) eq 'ARRAY' && @{$aff->{programFiles}}) {
-      $cp{files} = [ @{$aff->{programFiles}} ];
+      $cp{files} = [ map { _normalize_import_text($_) } @{$aff->{programFiles}} ];
     }
     if (ref($aff->{programRoutines}) eq 'ARRAY' && @{$aff->{programRoutines}}) {
-      $cp{routines} = [ map { $_->{name} } @{$aff->{programRoutines}} ];
+      $cp{routines} = [ map { _normalize_import_text($_->{name}) } @{$aff->{programRoutines}} ];
     }
 
     my @cwes = _extract_cwe_descriptions($cna->{problemTypes});
     $cp{cwes} = \@cwes if @cwes;
 
     if (ref($cna->{solutions}) eq 'ARRAY' && @{$cna->{solutions}}) {
-      my @vals = map { $_->{value} // '' } @{$cna->{solutions}};
+      my @vals = map { _normalize_import_text($_->{value} // '') } @{$cna->{solutions}};
       $cp{solution} = @vals == 1 ? $vals[0] : \@vals;
     }
 
     if (ref($cna->{workarounds}) eq 'ARRAY' && @{$cna->{workarounds}}) {
-      my @vals = map { $_->{value} // '' } @{$cna->{workarounds}};
+      my @vals = map { _normalize_import_text($_->{value} // '') } @{$cna->{workarounds}};
       $cp{mitigation} = @vals == 1 ? $vals[0] : \@vals;
     }
 
@@ -87,9 +91,9 @@ class CPANSec::CVE::CVE2YAML {
       for my $cr (@{$cna->{credits}}) {
         next unless ref($cr) eq 'HASH';
         push @credits, {
-          type => $cr->{type} // '',
-          value => $cr->{value} // '',
-          (($cr->{lang} // 'en') ne 'en' ? (lang => $cr->{lang}) : ()),
+          type => _normalize_import_text($cr->{type} // ''),
+          value => _normalize_import_text($cr->{value} // ''),
+          (($cr->{lang} // 'en') ne 'en' ? (lang => _normalize_import_text($cr->{lang})) : ()),
         };
       }
       $cp{credits} = \@credits if @credits;
@@ -99,7 +103,10 @@ class CPANSec::CVE::CVE2YAML {
       my @tl;
       for my $t (@{$cna->{timeline}}) {
         next unless ref($t) eq 'HASH';
-        push @tl, { time => $t->{time}, value => $t->{value} }
+        push @tl, {
+          time => _normalize_import_text($t->{time}),
+          value => _normalize_import_text($t->{value}),
+        }
           if defined $t->{time} && defined $t->{value};
       }
       $cp{timeline} = \@tl if @tl;
@@ -138,10 +145,10 @@ sub _version_to_expr ($v) {
 }
 
 sub _reference_to_cpansec ($r) {
-  my %out = (link => $r->{url});
-  $out{name} = $r->{name} if defined $r->{name};
+  my %out = (link => _normalize_import_text($r->{url}));
+  $out{name} = _normalize_import_text($r->{name}) if defined $r->{name};
   if (ref($r->{tags}) eq 'ARRAY' && @{$r->{tags}}) {
-    $out{tags} = [ @{$r->{tags}} ];
+    $out{tags} = [ map { _normalize_import_text($_) } @{$r->{tags}} ];
   }
   return \%out;
 }
@@ -255,11 +262,99 @@ sub _normalize_timeline ($entry) {
 
 sub _normalize_ws ($text) {
   $text //= "";
+  $text =~ s/\x{A0}/ /g;
   $text =~ s/\r\n?/\n/g;
   $text =~ s/\s+/ /g;
   $text =~ s/^\s+//;
   $text =~ s/\s+$//;
   return $text;
+}
+
+sub _normalize_import_text ($text) {
+  return '' unless defined $text;
+  $text = "$text";
+  $text =~ s/\x{A0}/ /g;
+  return $text;
+}
+
+sub _projection_diff_text ($source, $rebuilt, $limit = 80) {
+  my @lines;
+  my $truncated = 0;
+  _collect_projection_diff($source, $rebuilt, '', \@lines, $limit, \$truncated);
+  push @lines, '(diff truncated)' if $truncated;
+  return "Projection diff (source vs rebuilt):\n" . join("\n", map { "  - $_" } @lines);
+}
+
+sub _collect_projection_diff ($source, $rebuilt, $path, $lines, $limit, $truncated_ref) {
+  if (@$lines >= $limit) {
+    $$truncated_ref = 1;
+    return;
+  }
+
+  my $source_ref = ref($source);
+  my $rebuilt_ref = ref($rebuilt);
+
+  if ($source_ref eq 'HASH' && $rebuilt_ref eq 'HASH') {
+    my %keys = map { $_ => 1 } (keys %$source, keys %$rebuilt);
+    for my $key (sort keys %keys) {
+      my $next = length($path) ? "$path.$key" : $key;
+      _collect_projection_diff($source->{$key}, $rebuilt->{$key}, $next, $lines, $limit, $truncated_ref);
+      return if @$lines >= $limit;
+    }
+    return;
+  }
+
+  if ($source_ref eq 'ARRAY' && $rebuilt_ref eq 'ARRAY') {
+    my $max = @$source > @$rebuilt ? scalar(@$source) : scalar(@$rebuilt);
+    for my $idx (0 .. $max - 1) {
+      my $next = length($path) ? "$path\[$idx\]" : "[$idx]";
+      _collect_projection_diff($source->[$idx], $rebuilt->[$idx], $next, $lines, $limit, $truncated_ref);
+      return if @$lines >= $limit;
+    }
+    return;
+  }
+
+  if ($source_ref ne $rebuilt_ref) {
+    push @$lines, sprintf(
+      "%s type mismatch: source=%s rebuilt=%s",
+      _display_path($path),
+      _display_type($source),
+      _display_type($rebuilt),
+    );
+    return;
+  }
+
+  my $source_value = _display_value($source);
+  my $rebuilt_value = _display_value($rebuilt);
+  return if $source_value eq $rebuilt_value;
+
+  push @$lines, sprintf(
+    "%s differs: source=%s rebuilt=%s",
+    _display_path($path),
+    $source_value,
+    $rebuilt_value,
+  );
+}
+
+sub _display_path ($path) {
+  return length($path) ? $path : '(root)';
+}
+
+sub _display_type ($value) {
+  return ref($value) || 'SCALAR';
+}
+
+sub _display_value ($value) {
+  my $json = JSON::PP->new->canonical;
+  my $rendered = eval { $json->encode($value) };
+  if (!defined $rendered || $@) {
+    $rendered = defined($value) ? "$value" : 'null';
+  }
+  $rendered =~ s/\n/\\n/g;
+  if (length($rendered) > 180) {
+    $rendered = substr($rendered, 0, 177) . '...';
+  }
+  return $rendered;
 }
 
 1;
