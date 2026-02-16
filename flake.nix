@@ -14,9 +14,9 @@
         "aarch64-darwin"
       ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system:
-        f (import nixpkgs { inherit system; }));
+        f (import nixpkgs { inherit system; }) system);
     in {
-      packages = forAllSystems (pkgs:
+      packages = forAllSystems (pkgs: system:
         let
           perlEnv = pkgs.perl.withPackages (p: [
             p.YAMLPP
@@ -35,19 +35,19 @@
 
           default = pkgs.symlinkJoin {
             name = "cpansec-cna-tool";
-            paths = [ self.packages.${pkgs.system}.cna ];
+            paths = [ self.packages.${system}.cna ];
           };
         });
 
-      apps = forAllSystems (pkgs: {
+      apps = forAllSystems (pkgs: system: {
         cna = {
           type = "app";
-          program = "${self.packages.${pkgs.system}.cna}/bin/cna";
+          program = "${self.packages.${system}.cna}/bin/cna";
         };
-        default = self.apps.${pkgs.system}.cna;
+        default = self.apps.${system}.cna;
       });
 
-      devShells = forAllSystems (pkgs:
+      devShells = forAllSystems (pkgs: _system:
         let
           perlEnv = pkgs.perl.withPackages (p: [
             p.TestWarnings
