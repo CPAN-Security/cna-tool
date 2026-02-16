@@ -13,6 +13,7 @@ use File::Basename qw(dirname);
 use File::Spec ();
 use JSON::PP ();
 use JSON::Validator ();
+use YAML::PP ();
 
 sub default_schema_path () {
   my $root_schema = File::Spec->catfile("schema", "cpansec-cna-schema-01.yaml");
@@ -92,12 +93,11 @@ class CPANSec::CVE::YAML2CVE {
     close($in);
     $yaml_text = _normalize_empty_literal_blocks($yaml_text // '');
 
-    my $yaml_docs = CPAN::Meta::YAML->read_string($yaml_text)
-      or die "Failed to parse YAML from $infile\n";
+    my $doc = eval { YAML::PP->new(schema => [qw/ Core /])->load_string($yaml_text) };
+    die "Failed to parse YAML from $infile\n" if !$doc;
     my $schema_docs = CPAN::Meta::YAML->read($schema_file)
       or die "Failed to parse schema YAML from $schema_file\n";
 
-    my $doc = $yaml_docs->[0];
     my $schema = $schema_docs->[0];
 
     $doc = coerce_for_schema($doc, $schema);

@@ -45,7 +45,7 @@ class CPANSec::CVE::Announce {
       Text::Wrap::wrap('', '', $cna->{title}),
       "",
       _header("Description"),
-      Text::Wrap::wrap('', '', _descriptions($cna)),
+      _wrap_description(_descriptions_text($cna)),
       "",
       ($cna->{problemTypes} ? _section(
         "Problem types", map { Text::Wrap::wrap('- ', '  ', $_->{descriptions}->[0]->{description}) } $cna->{problemTypes}->@*
@@ -91,10 +91,30 @@ sub _section ($t, @items) {
   return @items && $items[0] ? (_header($t), @items, "") : ();
 }
 
-sub _descriptions ($j) {
+sub _descriptions_text ($j) {
   my @ret = map { $_->{value} || $_->{description} } grep { $_->{lang} eq 'en' } $j->{descriptions}->@*;
   s/[\N{NBSP}]/ /g foreach @ret;
-  return @ret;
+  return join("\n\n", grep { defined $_ && length $_ } @ret);
+}
+
+sub _wrap_description ($text) {
+  return () unless defined $text && length $text;
+
+  my @chunks = split /\n{2,}/, $text;
+  my @out;
+  for my $chunk (@chunks) {
+    next unless defined $chunk;
+    if ($chunk =~ /^\s/m) {
+      push @out, split(/\n/, $chunk);
+    } else {
+      my $para = $chunk;
+      $para =~ s/\n/ /g;
+      push @out, Text::Wrap::wrap('', '', $para);
+    }
+    push @out, '';
+  }
+  pop @out if @out && $out[-1] eq '';
+  return @out;
 }
 
 sub _timeline_entry ($entry) {

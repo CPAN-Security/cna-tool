@@ -48,6 +48,7 @@ is($rc, 0, 'emit succeeds');
 my $doc = decode_json($out);
 my $desc = $doc->{containers}{cna}{descriptions}[0]{value};
 
+like($desc, qr/too many unicorns\.\n\nUnicorns are nice/s, 'paragraph break is preserved');
 like($desc, qr/require care and attention, and can become/, 'wrapped prose lines are reflowed');
 unlike($desc, qr/require care\\nand attention/, 'soft line wraps are removed from prose');
 like($desc, qr/\n\n\s+Run \$ perl -E 'say ABC-foobar "123"'\n\s+Run \$ echo done/s, 'indented block keeps explicit newlines');
