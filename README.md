@@ -34,11 +34,10 @@ nix profile install github:CPAN-Security/cna-tool#cna
 cna --help
 ```
 
-Upgrade/remove later:
+Upgrade later:
 
 ```bash
-nix profile upgrade github:CPAN-Security/cna-tool#cna
-nix profile remove github:CPAN-Security/cna-tool#cna
+nix profile upgrade cna
 ```
 
 It helps you:
