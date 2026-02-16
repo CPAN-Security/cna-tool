@@ -8,6 +8,7 @@ use CPANSec::CVE::YAML2CVE ();
 use File::Temp qw(tempfile);
 use JSON::PP qw(decode_json);
 use YAML::PP ();
+use YAML::PP::Common qw(PRESERVE_ORDER);
 
 class CPANSec::CVE::CVE2YAML {
   field $yaml2cve :param = CPANSec::CVE::YAML2CVE->new;
@@ -116,10 +117,18 @@ class CPANSec::CVE::CVE2YAML {
   }
 
   method encode_cpansec_yaml ($cpansec) {
-    my $ypp = YAML::PP->new(schema => [qw/ Core /]);
-    my $yaml = $ypp->dump_string({ cpansec => $cpansec });
+    my $ypp = YAML::PP->new(
+      schema => [qw/ Core /],
+      header => 0,
+      preserve => PRESERVE_ORDER,
+    );
+    my $yaml = $ypp->dump_string({
+      cpansec => _preserved_cpansec_mapping($ypp, $cpansec),
+    });
+
     # Prefer strip-chomp style for common multiline prose fields.
     $yaml =~ s/^(\s*(?:description|solution|mitigation):)\s*\|\s*$/$1 |-/mg;
+    $yaml =~ s/[ \t]+\n/\n/g;
     return $yaml;
   }
 }
@@ -275,6 +284,78 @@ sub _normalize_import_text ($text) {
   $text = "$text";
   $text =~ s/\x{A0}/ /g;
   return $text;
+}
+
+sub _ordered_cpansec_keys ($cpansec) {
+  my @order = qw(
+    cve distribution module author repo affected
+    title description
+    cwes impacts solution mitigation files routines timeline credits
+    references
+  );
+
+  my %seen;
+  my @out;
+  for my $key (@order) {
+    next unless exists $cpansec->{$key};
+    push @out, $key;
+    $seen{$key} = 1;
+  }
+
+  for my $key (sort keys %$cpansec) {
+    next if $seen{$key};
+    push @out, $key;
+  }
+
+  return \@out;
+}
+
+sub _preserved_cpansec_mapping ($ypp, $cpansec) {
+  my $map = $ypp->preserved_mapping({});
+  for my $key (@{_ordered_cpansec_keys($cpansec)}) {
+    $map->{$key} = _preserve_value_for_key($ypp, $key, $cpansec->{$key});
+  }
+  return $map;
+}
+
+sub _preserve_value_for_key ($ypp, $key, $value) {
+  return $value if !ref($value);
+
+  if (ref($value) eq 'ARRAY') {
+    if ($key eq 'references') {
+      return [ map { _preserved_hash_with_order($ypp, $_, [qw(link name tags)]) } @$value ];
+    }
+    if ($key eq 'credits') {
+      return [ map { _preserved_hash_with_order($ypp, $_, [qw(type value lang)]) } @$value ];
+    }
+    if ($key eq 'timeline') {
+      return [ map { _preserved_hash_with_order($ypp, $_, [qw(time value lang)]) } @$value ];
+    }
+    return [ map { _preserve_value_for_key($ypp, '', $_) } @$value ];
+  }
+
+  if (ref($value) eq 'HASH') {
+    return _preserved_hash_with_order($ypp, $value, [ sort keys %$value ]);
+  }
+
+  return $value;
+}
+
+sub _preserved_hash_with_order ($ypp, $hash, $order) {
+  return $hash unless ref($hash) eq 'HASH';
+
+  my $map = $ypp->preserved_mapping({});
+  my %seen;
+  for my $k (@$order) {
+    next unless exists $hash->{$k};
+    $map->{$k} = _preserve_value_for_key($ypp, $k, $hash->{$k});
+    $seen{$k} = 1;
+  }
+  for my $k (sort keys %$hash) {
+    next if $seen{$k};
+    $map->{$k} = _preserve_value_for_key($ypp, $k, $hash->{$k});
+  }
+  return $map;
 }
 
 sub _projection_diff_text ($source, $rebuilt, $limit = 80) {
