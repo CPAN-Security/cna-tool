@@ -1,0 +1,73 @@
+name: CVE PR Check
+
+on:
+  pull_request:
+    paths:
+      - "cves/*.yaml"
+      - "cves/*.json"
+      - "announce/*.txt"
+
+permissions:
+  contents: read
+
+jobs:
+  check-cves:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+
+      - name: Fetch PR base commit
+        run: |
+          set -euo pipefail
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          if ! git cat-file -e "${base_sha}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "${base_sha}"
+          fi
+
+      - name: Check changed CVEs with cna (flake)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+
+          if ! changed_raw="$(git diff --name-only "${base_sha}...${head_sha}" -- 'cves/*.yaml' 'cves/*.json' 'announce/*.txt')"; then
+            echo "Failed to compute changed CVE files for range ${base_sha}...${head_sha}" >&2
+            exit 1
+          fi
+
+          mapfile -t changed < <(printf '%s\n' "$changed_raw" | sed '/^$/d')
+
+          if [ "${#changed[@]}" -eq 0 ]; then
+            echo "No changed CVE files in this PR."
+            exit 0
+          fi
+
+          printf 'Changed CVE files:\n'
+          printf '  - %s\n' "${changed[@]}"
+
+          mapfile -t cves < <(
+            printf '%s\n' "${changed[@]}" \
+              | sed -nE 's#^(cves|announce)/(CVE-[0-9]{4}-[0-9]{4,19})\.(yaml|json|txt)$#\2#p' \
+              | sort -u
+          )
+
+          status=0
+          for cve in "${cves[@]}"; do
+            echo
+            echo "Checking $cve"
+            if ! nix run github:CPAN-Security/cna-tool#cna -- \
+              check "$cve" --format github --pr-policy --base-sha "$base_sha"; then
+              status=1
+            fi
+          done
+
+          exit "$status"

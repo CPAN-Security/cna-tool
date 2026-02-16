@@ -74,6 +74,7 @@ Commands:
                                     Create/initialize cves/<CVE-ID>.yaml (or encrypted/)
   check [CVE-ID] [--changed] [--format text|github] [--strict]
                                     Validate YAML + lint findings (and JSON drift if present)
+                                    Use --pr-policy --base-sha <sha> to enforce announce PR rules
   build [CVE-ID] [--strict] [--force]
                                     Validate/lint and write <CVE-ID>.json next to source YAML
   emit [CVE-ID] [--strict] [--cna-container-only]
@@ -217,21 +218,30 @@ USAGE
   }
 
   method _cmd_check (@args) {
-    my %opt = (format => 'text', strict => 0, changed => 0);
+    my %opt = (format => 'text', strict => 0, changed => 0, pr_policy => 0);
     my @positionals;
 
     while (@args) {
       my $a = shift @args;
       if ($a eq '--changed') { $opt{changed} = 1; next; }
       if ($a eq '--strict') { $opt{strict} = 1; next; }
+      if ($a eq '--pr-policy') { $opt{pr_policy} = 1; next; }
+      if ($a =~ /^--base-sha=(.+)$/) { $opt{base_sha} = $1; next; }
+      if ($a eq '--base-sha') { $opt{base_sha} = shift(@args) // die "--base-sha requires value\n"; next; }
       if ($a =~ /^--format=(.+)$/) { $opt{format} = $1; next; }
       if ($a eq '--format') { $opt{format} = shift(@args) // die "--format requires value\n"; next; }
       push @positionals, $a;
     }
 
     die "--format must be 'text' or 'github'\n" unless $opt{format} eq 'text' || $opt{format} eq 'github';
-    die "Usage: cna check [CVE-ID] [--changed] [--format text|github] [--strict]\n"
+    die "Usage: cna check [CVE-ID] [--changed] [--format text|github] [--strict] [--pr-policy --base-sha <sha>]\n"
       if @positionals > 1;
+    if ($opt{pr_policy}) {
+      die "--pr-policy requires --base-sha <sha>\n"
+        unless defined $opt{base_sha} && length $opt{base_sha};
+    } elsif (defined $opt{base_sha}) {
+      die "--base-sha requires --pr-policy\n";
+    }
 
     my $default_cve = (!$opt{changed} && !@positionals) ? $self->_default_cve_from_context : undef;
 
@@ -242,11 +252,24 @@ USAGE
     }
 
     my ($findings_by_file, $errors, $warnings) = $self->_lint_and_validate_files(@yaml_files);
+    my $pr_policy_errors = 0;
+    if ($opt{pr_policy}) {
+      my ($extra_findings, $extra_errors, $extra_warnings)
+        = $self->_pr_policy_announce_findings(\@yaml_files, $opt{base_sha});
+      $self->_merge_findings($findings_by_file, $extra_findings);
+      $errors += $extra_errors;
+      $warnings += $extra_warnings;
+      $pr_policy_errors += $extra_errors;
+    }
     my $schema_errors = $self->_count_schema_errors($findings_by_file);
     my $report = $self->_render_findings($findings_by_file, $opt{format});
     print $report, "\n" if length $report;
 
     if ($schema_errors > 0) {
+      print "Summary: $errors error(s), $warnings warning(s), $schema_errors schema error(s).\n";
+      return 1;
+    }
+    if ($pr_policy_errors > 0) {
       print "Summary: $errors error(s), $warnings warning(s), $schema_errors schema error(s).\n";
       return 1;
     }
@@ -568,6 +591,14 @@ USAGE
     return $count;
   }
 
+  method _merge_findings ($findings_by_file, $extra_findings) {
+    for my $path (keys %$extra_findings) {
+      $findings_by_file->{$path} ||= [];
+      push @{$findings_by_file->{$path}}, @{$extra_findings->{$path}};
+    }
+    return;
+  }
+
   method _resolve_check_targets ($cve, $changed) {
     if (defined $cve && length $cve) {
       return ($self->_find_yaml_for_cve($cve));
@@ -816,6 +847,112 @@ USAGE
       path => $yaml,
       line => 1,
     };
+  }
+
+  method _pr_policy_announce_findings ($yaml_files, $base_sha) {
+    my ($check_rc) = $self->_run_cmd_capture_with_rc('git', 'rev-parse', '--verify', '--quiet', "$base_sha^{commit}");
+    die "Invalid --base-sha '$base_sha' (not a known git commit)\n"
+      if !defined($check_rc) || $check_rc != 0;
+
+    my %findings_by_file;
+    my ($errors, $warnings) = (0, 0);
+
+    for my $yaml (@$yaml_files) {
+      next unless $yaml =~ m{^cves/(CVE-\d{4}-\d{4,19})\.yaml$}i;
+      my $cve = $1;
+      my $announce_path = File::Spec->catfile('announce', "$cve.txt");
+
+      my $exists_in_base = $self->_git_path_exists_at_ref($base_sha, File::Spec->catfile('cves', "$cve.yaml"))
+        || $self->_git_path_exists_at_ref($base_sha, File::Spec->catfile('cves', "$cve.json"));
+      my $announce_in_base = $self->_git_path_exists_at_ref($base_sha, $announce_path);
+      my $announce_now = -f $announce_path ? 1 : 0;
+
+      if (!$exists_in_base) {
+        if (!$announce_now) {
+          my $f = {
+            severity => 'error',
+            id => 'announce_missing',
+            message => "New CVE $cve must include $announce_path in this PR.",
+            path => $yaml,
+            line => 1,
+          };
+          push @{$findings_by_file{$yaml}}, $f;
+          $errors++;
+          next;
+        }
+
+        my ($generated, $source_yaml) = $self->_render_announce_text($cve);
+        my $actual = _read_text_file($announce_path);
+        if ($generated ne $actual) {
+          my $f = {
+            severity => 'error',
+            id => 'announce_mismatch',
+            message => "$announce_path does not match generated announce output from $source_yaml.",
+            path => $announce_path,
+            line => 1,
+          };
+          push @{$findings_by_file{$announce_path}}, $f;
+          $errors++;
+        }
+        next;
+      }
+
+      if (!$announce_in_base && $announce_now) {
+        my $f = {
+          severity => 'error',
+          id => 'announce_not_allowed',
+          message => "$announce_path must not be added for existing CVE $cve.",
+          path => $announce_path,
+          line => 1,
+        };
+        push @{$findings_by_file{$announce_path}}, $f;
+        $errors++;
+        next;
+      }
+
+      if ($announce_in_base && !$announce_now) {
+        my $f = {
+          severity => 'error',
+          id => 'announce_not_allowed',
+          message => "$announce_path must not be removed for existing CVE $cve.",
+          path => $yaml,
+          line => 1,
+        };
+        push @{$findings_by_file{$yaml}}, $f;
+        $errors++;
+        next;
+      }
+
+      if ($announce_in_base && $announce_now) {
+        my $base_text = $self->_git_show_text_at_ref($base_sha, $announce_path);
+        my $head_text = _read_text_file($announce_path);
+        if ($base_text ne $head_text) {
+          my $f = {
+            severity => 'error',
+            id => 'announce_not_allowed',
+            message => "$announce_path must not change for existing CVE $cve.",
+            path => $announce_path,
+            line => 1,
+          };
+          push @{$findings_by_file{$announce_path}}, $f;
+          $errors++;
+        }
+      }
+    }
+
+    return (\%findings_by_file, $errors, $warnings);
+  }
+
+  method _git_path_exists_at_ref ($ref, $path) {
+    my ($rc) = $self->_run_cmd_capture_with_rc('git', 'rev-parse', '--verify', '--quiet', "$ref:$path");
+    return defined($rc) && $rc == 0 ? 1 : 0;
+  }
+
+  method _git_show_text_at_ref ($ref, $path) {
+    my ($rc, @out) = $self->_run_cmd_capture_with_rc('git', 'show', "$ref:$path");
+    die "Cannot read $path at git ref $ref\n"
+      if !defined($rc) || $rc != 0;
+    return join('', @out);
   }
 
   method _yaml_stub (%in) {
@@ -1120,6 +1257,14 @@ sub _read_json_file ($path) {
   my $json = <$fh>;
   close($fh);
   return decode_json($json);
+}
+
+sub _read_text_file ($path) {
+  open(my $fh, '<', $path) or die "Cannot read $path: $!\n";
+  local $/;
+  my $txt = <$fh>;
+  close($fh);
+  return $txt // '';
 }
 
 sub _normalize_cna_for_reconcile ($cna) {

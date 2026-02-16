@@ -3,9 +3,16 @@ use v5.42;
 
 use File::Copy qw(copy);
 use File::Path qw(make_path);
-use File::Temp qw(tempdir);
+use File::Temp qw(tempdir tempfile);
 use JSON::PP qw(decode_json encode_json);
 use Test::More;
+
+my ($gitcfg_fh, $gitcfg) = tempfile();
+close($gitcfg_fh);
+$ENV{GIT_CONFIG_GLOBAL} = $gitcfg;
+$ENV{GIT_CONFIG_SYSTEM} = $gitcfg;
+$ENV{GIT_CONFIG_NOSYSTEM} = 1;
+$ENV{GIT_TERMINAL_PROMPT} = 0;
 
 my $cve = 'CVE-1900-9933';
 my $branch = $cve . '-import-default';

@@ -8,6 +8,13 @@ use File::Temp qw(tempdir tempfile);
 use JSON::PP qw(decode_json);
 use Test::More;
 
+my ($gitcfg_fh, $gitcfg) = tempfile();
+close($gitcfg_fh);
+$ENV{GIT_CONFIG_GLOBAL} = $gitcfg;
+$ENV{GIT_CONFIG_SYSTEM} = $gitcfg;
+$ENV{GIT_CONFIG_NOSYSTEM} = 1;
+$ENV{GIT_TERMINAL_PROMPT} = 0;
+
 my $fixture_yaml = 't/var/CVE-2025-40906.yaml';
 my $schema_json = abs_path('cve-schema/schema/CVE_Record_Format.json');
 
