@@ -18,6 +18,7 @@ use File::Temp qw(tempfile);
 use HTTP::Tiny ();
 use JSON::PP qw(decode_json);
 use Storable qw(dclone);
+use Text::ParseWords qw(shellwords);
 
 class CPANSec::CNA::App {
   field $lint :param = CPANSec::CNA::Lint->new;
@@ -45,6 +46,9 @@ class CPANSec::CNA::App {
     }
     if ($cmd eq 'announce') {
       return $self->_cmd_announce(@argv);
+    }
+    if ($cmd eq 'edit') {
+      return $self->_cmd_edit(@argv);
     }
     if ($cmd eq 'import') {
       return $self->_cmd_import(@argv);
@@ -76,6 +80,8 @@ Commands:
                                     Validate/lint and print generated JSON to stdout
   announce [CVE-ID] [--write|--output path] [--force]
                                     Render announcement text to stdout or file
+  edit [CVE-ID]
+                                    Open CVE YAML in $VISUAL/$EDITOR (or vi)
   import [CVE-ID|path.json] [--force] [--no-guard]
                                     Convert CVE JSON to YAML macro with round-trip guard
   reconcile [CVE-ID] [--api-base URL]
@@ -412,6 +418,28 @@ USAGE
 
     print "Wrote $yaml_path\n";
     print "Round-trip guard: ", ($opt{guard} ? "enabled" : "disabled"), "\n";
+    return 0;
+  }
+
+  method _cmd_edit (@args) {
+    die "Usage: cna edit [CVE-ID]\n" unless @args <= 1;
+
+    my $cve = $args[0] // $self->_default_cve_from_context
+      // die "No CVE provided and no default found (set CPANSEC_CNA_CVE or use a CVE-prefixed branch name).\n";
+    my $yaml = $self->_find_yaml_for_cve($cve);
+
+    my $editor = (defined $ENV{VISUAL} && length $ENV{VISUAL})
+      ? $ENV{VISUAL}
+      : (defined $ENV{EDITOR} && length $ENV{EDITOR})
+      ? $ENV{EDITOR}
+      : 'vi';
+    my @cmd = shellwords($editor);
+    die "Invalid editor command in VISUAL/EDITOR\n" unless @cmd;
+    push @cmd, $yaml;
+
+    system(@cmd);
+    my $rc = $? >> 8;
+    die "Editor command failed ($rc): @cmd\n" if $rc != 0;
     return 0;
   }
 

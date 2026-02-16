@@ -12,4 +12,3 @@ requires 'MetaCPAN::Client';
 on 'test' => sub {
   requires 'Test::Warnings';
 };
-

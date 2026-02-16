@@ -1,23 +1,36 @@
 {
   "nodes": {
-    "nixpkgs": {
+    "cve-schema": {
+      "flake": false,
       "locked": {
-        "lastModified": 1771008912,
-        "narHash": "sha256-gf2AmWVTs8lEq7z/3ZAsgnZDhWIckkb+ZnAo5RzSxJg=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "a82ccc39b39b621151d6732718e3e250109076fa",
+        "lastModified": 1761746861,
+        "narHash": "sha256-8Hw46gNNjgeAhPKd/wLWE07tO7WACSZtyMVXef8vmDc=",
+        "owner": "CVEProject",
+        "repo": "cve-schema",
+        "rev": "ce5f5c865f14dc40a6548d36b74751abca1c588a",
         "type": "github"
       },
       "original": {
-        "owner": "NixOS",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
+        "owner": "CVEProject",
+        "repo": "cve-schema",
         "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 0,
+        "narHash": "sha256-gf2AmWVTs8lEq7z/3ZAsgnZDhWIckkb+ZnAo5RzSxJg=",
+        "path": "/nix/store/4ggd0kb8as38xa0kr730qpnsa89df0x7-source",
+        "type": "path"
+      },
+      "original": {
+        "id": "nixpkgs",
+        "type": "indirect"
       }
     },
     "root": {
       "inputs": {
+        "cve-schema": "cve-schema",
         "nixpkgs": "nixpkgs"
       }
     }
