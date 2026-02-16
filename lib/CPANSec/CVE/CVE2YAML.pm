@@ -12,6 +12,7 @@ use YAML::PP::Common qw(PRESERVE_ORDER);
 
 class CPANSec::CVE::CVE2YAML {
   field $yaml2cve :param = CPANSec::CVE::YAML2CVE->new;
+  field $yaml_schema_hint :param = '# yaml-language-server: $schema=../schema/cpansec-cna-schema-01.yaml';
 
   method convert_json_file_to_yaml ($json_path, %opts) {
     my $guard = exists $opts{guard} ? $opts{guard} : 1;
@@ -129,7 +130,7 @@ class CPANSec::CVE::CVE2YAML {
     # Prefer strip-chomp style for common multiline prose fields.
     $yaml =~ s/^(\s*(?:description|solution|mitigation):)\s*\|\s*$/$1 |-/mg;
     $yaml =~ s/[ \t]+\n/\n/g;
-    return $yaml;
+    return $yaml_schema_hint . "\n" . $yaml;
   }
 }
 

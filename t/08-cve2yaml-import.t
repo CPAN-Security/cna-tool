@@ -12,6 +12,7 @@ my $conv = CPANSec::CVE::CVE2YAML->new;
 my $yaml = $conv->convert_json_file_to_yaml('t/var/CVE-2025-40916.source.json', guard => 1);
 
 like($yaml, qr/^cpansec:\n/m, 'converter outputs cpansec yaml document');
+like($yaml, qr/^\# yaml-language-server: \$schema=\.\.\/schema\/cpansec-cna-schema-01\.yaml\n/m, 'converter emits yaml language-server schema hint');
 like($yaml, qr/^\s+cve:\s+CVE-2025-40916\s*$/m, 'converter preserves cve id');
 
 my $tmpdir = tempdir(CLEANUP => 1);
