@@ -21,6 +21,10 @@ sub default_schema_path () {
 }
 
 sub default_cve_schema_path () {
+  if (defined $ENV{CPANSEC_CNA_CVE_SCHEMA} && length $ENV{CPANSEC_CNA_CVE_SCHEMA}) {
+    return $ENV{CPANSEC_CNA_CVE_SCHEMA};
+  }
+
   my $submodule_schema = File::Spec->catfile("cve-schema", "schema", "CVE_Record_Format.json");
   return $submodule_schema if -f $submodule_schema;
 

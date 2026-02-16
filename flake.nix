@@ -3,9 +3,13 @@
 
   inputs = {
     nixpkgs.url = "flake:nixpkgs";
+    cve-schema = {
+      url = "github:CVEProject/cve-schema";
+      flake = false;
+    };
   };
 
-  outputs = { self, nixpkgs }:
+  outputs = { self, nixpkgs, cve-schema }:
     let
       systems = [
         "x86_64-linux"
@@ -24,11 +28,16 @@
             p.MetaCPANClient
             p.Mojolicious
           ]);
+          cveSchemaOnly = pkgs.runCommand "cve-schema-only" {} ''
+            mkdir -p "$out"
+            cp -R ${cve-schema}/schema "$out/schema"
+          '';
         in {
           cna = pkgs.writeShellApplication {
             name = "cna";
             runtimeInputs = [ perlEnv ];
             text = ''
+              export CPANSEC_CNA_CVE_SCHEMA="${cveSchemaOnly}/schema/CVE_Record_Format.json"
               exec ${self}/scripts/cna "$@"
             '';
           };

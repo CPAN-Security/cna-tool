@@ -24,6 +24,9 @@ CPANSEC_CNA_ROOT=/path/to/cpansec-cna-cve \
   nix run github:CPAN-Security/cna-tool#cna -- check CVE-2025-40906
 ```
 
+The flake app wires the CVE JSON schema automatically; a local `cve-schema`
+submodule checkout is not required for `nix run`.
+
 Install into your user profile (common usage pattern):
 
 ```bash
@@ -60,6 +63,12 @@ For a local checkout, install dependencies from `cpanfile` with `cpm`:
 
 ```bash
 cpm install --with-test --show-build-log-on-failure
+```
+
+Initialize the `cve-schema` submodule (needed for local `scripts/cna` schema validation):
+
+```bash
+git submodule update --init --recursive cve-schema
 ```
 
 Then run tests:
