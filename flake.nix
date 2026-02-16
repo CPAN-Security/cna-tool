@@ -2,7 +2,7 @@
   description = "CPANSec CNA tool";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs.url = "flake:nixpkgs";
   };
 
   outputs = { self, nixpkgs }:
