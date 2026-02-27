@@ -18,6 +18,7 @@ class CPANSec::CNA::Lint {
     push @findings, _rule_cvss_present($cpansec, $path);
     push @findings, _rule_solution_or_mitigation($cpansec, $path);
     push @findings, _rule_reference_quality($cpansec, $path);
+    push @findings, _rule_metacpan_changelog_version_pinned($cpansec, $path);
     push @findings, _rule_description_length($cpansec, $path);
     push @findings, _rule_placeholders($cpansec, $path);
 
@@ -265,6 +266,47 @@ sub _rule_description_length ($cpansec, $path) {
     $path,
     _line_for_key($path, 'description'),
   );
+}
+
+sub _rule_metacpan_changelog_version_pinned ($cpansec, $path) {
+  my $refs = $cpansec->{references};
+  return () unless ref($refs) eq 'ARRAY' && @$refs;
+
+  my @bad;
+  for my $r (@$refs) {
+    next unless ref($r) eq 'HASH';
+    my $url = $r->{link};
+    next unless defined($url) && !ref($url);
+    next unless _is_metacpan_changelog_link($url);
+    next if _metacpan_changelog_is_version_pinned($url);
+    push @bad, $url;
+  }
+
+  return () unless @bad;
+  my $example = $bad[0];
+  my $more = @bad > 1 ? sprintf(' (+%d more)', scalar(@bad) - 1) : '';
+  return _f(
+    'warning',
+    'metacpan_changelog_not_version_pinned',
+    "MetaCPAN changelog reference should target a specific release changelog file; avoid unversioned links like /dist/.../changes (e.g. $example$more).",
+    $path,
+    _line_for_key($path, 'references'),
+  );
+}
+
+sub _is_metacpan_changelog_link ($url) {
+  return 0 unless $url =~ m{^https?://metacpan\.org/}i;
+
+  return 1 if $url =~ m{/dist/[^/?#]+/changes(?:[/?#]|$)}i;
+  return 1 if $url =~ m{/changes?(?:[/?#]|$)}i;
+  return 1 if $url =~ m{/source/[^?#]+/(?:changes?|changelog|history|news)(?:\.[A-Za-z0-9._-]+)?(?:[?#]|$)}i;
+
+  return 0;
+}
+
+sub _metacpan_changelog_is_version_pinned ($url) {
+  return 0 if $url =~ m{^https?://metacpan\.org/dist/}i;
+  return $url =~ m{^https?://metacpan\.org/(?:release|source)/(?:[^/?#]+/)?[^/?#]*-(?:v?\d)[^/?#]*(?:/|$)}i ? 1 : 0;
 }
 
 sub _rule_placeholders ($cpansec, $path) {
