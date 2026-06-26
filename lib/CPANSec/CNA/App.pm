@@ -746,6 +746,16 @@ USAGE
       return (_read_json_file($cves_json[0]), $cves_json[0]);
     }
 
+    # Refuse explicitly (without entering encrypted context / contacting the
+    # network) when the only local source is an encrypted/ record. Mirrors the
+    # announce command, which also declines encrypted sources.
+    my @encrypted = grep { -f $_ } (
+      File::Spec->catfile('encrypted', "$cve.yaml"),
+      File::Spec->catfile('encrypted', "$cve.json"),
+    );
+    die "Refusing reconcile for encrypted CVE source ($encrypted[0]); publish it to cves/ first.\n"
+      if @encrypted;
+
     die "Missing local CVE source for $cve under cves/ (yaml/json)\n";
   }
 
