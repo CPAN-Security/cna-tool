@@ -164,6 +164,15 @@ sub _expected_announce_lead ($cpansec) {
   my $phrase = template_version_range_from_affected($cpansec->{affected});
   return '' unless length $phrase;
 
+  # The Perl interpreter core (distribution and module both 'perl') follows the
+  # 'Perl <version range> ...' convention rather than the '<module> <version
+  # range> for Perl ...' form used for CPAN distributions. Appending 'for Perl'
+  # there would read as a doubled 'perl ... for Perl'.
+  my $distribution = _normalize_inline($cpansec->{distribution} // '');
+  if (lc($distribution) eq 'perl' && lc($module) eq 'perl') {
+    return "Perl $phrase";
+  }
+
   return "$module $phrase for Perl";
 }
 
