@@ -50,6 +50,51 @@ my @metacpan_changelog_cases = (
   { url => 'https://metacpan.org/release/DDICK/Crypt-URandom-0.55/source/Changes', expect_warn => 0 },
 );
 
+# Regression: the perl interpreter core (distribution and module both 'perl')
+# uses the 'Perl <version range> have ...' wording, not '<module> ... for Perl'.
+# The announce wording lint must accept that form and not warn.
+my $perl_core_model = CPANSec::CVE::Model->new(
+  cpansec => {
+    cve => 'CVE-1900-9998',
+    distribution => 'perl',
+    module => 'perl',
+    author => 'AUTHOR',
+    affected => ['<= 5.43.10'],
+    title => 'Perl versions through 5.43.10 have a buffer overflow',
+    description => "Perl versions through 5.43.10 have a buffer overflow.\n\nMore details.",
+    solution => 'Update to a fixed release.',
+    references => [ { link => 'https://example.invalid/TODO', tags => ['advisory'] } ],
+  },
+);
+my $perl_core_findings = $lint->run_model($perl_core_model, path => 't/var/CVE-1900-9998.yaml');
+my %perl_core_by_id = map { ($_->{id} => $_) } @$perl_core_findings;
+ok(
+  !$perl_core_by_id{announce_wording_mismatch},
+  'no announce_wording_mismatch for perl core record using "Perl <range> have ..." wording',
+);
+
+# A perl core record whose lead text genuinely diverges from the version
+# phrasing should still warn.
+my $perl_core_bad_model = CPANSec::CVE::Model->new(
+  cpansec => {
+    cve => 'CVE-1900-9997',
+    distribution => 'perl',
+    module => 'perl',
+    author => 'AUTHOR',
+    affected => ['<= 5.43.10'],
+    title => 'A buffer overflow affects the interpreter',
+    description => "A buffer overflow affects the interpreter.\n\nMore details.",
+    solution => 'Update to a fixed release.',
+    references => [ { link => 'https://example.invalid/TODO', tags => ['advisory'] } ],
+  },
+);
+my $perl_core_bad_findings = $lint->run_model($perl_core_bad_model, path => 't/var/CVE-1900-9997.yaml');
+my %perl_core_bad_by_id = map { ($_->{id} => $_) } @$perl_core_bad_findings;
+ok(
+  $perl_core_bad_by_id{announce_wording_mismatch},
+  'still warns for perl core record whose lead text does not match version phrasing',
+);
+
 for my $i (0 .. $#metacpan_changelog_cases) {
   my $case = $metacpan_changelog_cases[$i];
   my $case_model = CPANSec::CVE::Model->new(
