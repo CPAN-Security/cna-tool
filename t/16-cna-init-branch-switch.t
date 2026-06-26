@@ -6,6 +6,17 @@ use File::Temp qw(tempdir tempfile);
 use Test::More;
 
 my ($gitcfg_fh, $gitcfg) = tempfile();
+print {$gitcfg_fh} <<'GITCONFIG';
+[user]
+  name = CNA Test
+  email = cna-test@example.invalid
+[init]
+  defaultBranch = main
+[commit]
+  gpgsign = false
+[tag]
+  gpgsign = false
+GITCONFIG
 close($gitcfg_fh);
 $ENV{GIT_CONFIG_GLOBAL} = $gitcfg;
 $ENV{GIT_CONFIG_SYSTEM} = $gitcfg;
@@ -79,8 +90,6 @@ sub _commit_all ($root, $msg) {
   die "git add failed ($rc_add)\n" if $rc_add != 0;
   my $rc_commit = system(
     'git', '-C', $root,
-    '-c', 'user.name=Test User',
-    '-c', 'user.email=test@example.invalid',
     'commit', '-q', '-m', $msg,
   );
   die "git commit failed ($rc_commit)\n" if $rc_commit != 0;

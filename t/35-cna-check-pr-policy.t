@@ -7,6 +7,17 @@ use File::Temp qw(tempdir tempfile);
 use Test::More;
 
 my ($gitcfg_fh, $gitcfg) = tempfile();
+print {$gitcfg_fh} <<'GITCONFIG';
+[user]
+  name = CNA Test
+  email = cna-test@example.invalid
+[init]
+  defaultBranch = main
+[commit]
+  gpgsign = false
+[tag]
+  gpgsign = false
+GITCONFIG
 close($gitcfg_fh);
 $ENV{GIT_CONFIG_GLOBAL} = $gitcfg;
 $ENV{GIT_CONFIG_SYSTEM} = $gitcfg;
@@ -38,11 +49,8 @@ subtest 'new CVE with matching announce passes pr policy' => sub {
   my $cve = 'CVE-1900-9942';
   _write_yaml_from_fixture($root, $cve);
   make_path("$root/announce");
-  my $rc_announce = system(
-    'bash', '-lc',
-    "$cna --cpansec-cna-root '$root' announce $cve > '$root/announce/$cve.txt'",
-  );
-  is($rc_announce >> 8, 0, 'announce file generated');
+  qx($cna --cpansec-cna-root '$root' announce $cve > '$root/announce/$cve.txt');
+  is($? >> 8, 0, 'announce file generated');
 
   my $out = qx($cna --cpansec-cna-root '$root' check $cve --pr-policy --base-sha $base_sha 2>&1);
   my $rc = $? >> 8;
@@ -57,11 +65,8 @@ subtest 'existing CVE announce changes are rejected' => sub {
   my $cve = 'CVE-1900-9943';
   _write_yaml_from_fixture($root, $cve);
   make_path("$root/announce");
-  my $rc_announce = system(
-    'bash', '-lc',
-    "$cna --cpansec-cna-root '$root' announce $cve > '$root/announce/$cve.txt'",
-  );
-  is($rc_announce >> 8, 0, 'announce file generated');
+  qx($cna --cpansec-cna-root '$root' announce $cve > '$root/announce/$cve.txt');
+  is($? >> 8, 0, 'announce file generated');
   _commit_all($root, 'base cve with announce');
   my $base_sha = _head_sha($root);
 
@@ -112,8 +117,6 @@ sub _commit_all ($root, $msg) {
   die "git add failed ($rc_add)\n" if $rc_add != 0;
   my $rc_commit = system(
     'git', '-C', $root,
-    '-c', 'user.name=Test User',
-    '-c', 'user.email=test@example.invalid',
     'commit', '-q', '-m', $msg,
   );
   die "git commit failed ($rc_commit)\n" if $rc_commit != 0;
