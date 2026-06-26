@@ -15,6 +15,7 @@ use File::Basename qw(dirname basename);
 use File::Path qw(make_path);
 use File::Spec ();
 use File::Temp qw(tempfile);
+use Encode qw(decode);
 use HTTP::Tiny ();
 use JSON::PP qw(decode_json);
 use Storable qw(dclone);
@@ -392,13 +393,14 @@ USAGE
       $self->_assert_encrypted_write_safe($out);
       my $dir = dirname($out);
       make_path($dir) unless -d $dir;
-      open(my $fh, '>', $out) or die "Cannot write $out: $!\n";
+      open(my $fh, '>:encoding(UTF-8)', $out) or die "Cannot write $out: $!\n";
       print {$fh} $text;
       close($fh);
       print "Wrote $out\n";
       return 0;
     }
 
+    binmode(STDOUT, ':encoding(UTF-8)');
     print $text;
     return 0;
   }
@@ -952,7 +954,9 @@ USAGE
     my ($rc, @out) = $self->_run_cmd_capture_with_rc('git', 'show', "$ref:$path");
     die "Cannot read $path at git ref $ref\n"
       if !defined($rc) || $rc != 0;
-    return join('', @out);
+    # git show output is captured as raw bytes; decode so it compares
+    # consistently with _read_text_file / _render_announce_text (decoded strings).
+    return decode('UTF-8', join('', @out));
   }
 
   method _yaml_stub (%in) {
@@ -1260,7 +1264,7 @@ sub _read_json_file ($path) {
 }
 
 sub _read_text_file ($path) {
-  open(my $fh, '<', $path) or die "Cannot read $path: $!\n";
+  open(my $fh, '<:encoding(UTF-8)', $path) or die "Cannot read $path: $!\n";
   local $/;
   my $txt = <$fh>;
   close($fh);
