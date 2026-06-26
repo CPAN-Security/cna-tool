@@ -7,21 +7,30 @@ use File::Temp qw(tempdir tempfile);
 use Test::More;
 
 my ($gitcfg_fh, $gitcfg) = tempfile();
+print {$gitcfg_fh} <<'GITCONFIG';
+[user]
+  name = CNA Test
+  email = cna-test@example.invalid
+[init]
+  defaultBranch = main
+[commit]
+  gpgsign = false
+[tag]
+  gpgsign = false
+GITCONFIG
 close($gitcfg_fh);
 $ENV{GIT_CONFIG_GLOBAL} = $gitcfg;
 $ENV{GIT_CONFIG_SYSTEM} = $gitcfg;
 $ENV{GIT_CONFIG_NOSYSTEM} = 1;
 $ENV{GIT_TERMINAL_PROMPT} = 0;
 
-my $branch = _current_branch();
-if (defined $branch && $branch eq 'main') {
-  plan skip_all => "encrypted CVE operations are disallowed on main";
-}
-
 my $source_cve = 'CVE-2025-40906';
 my $cve = 'CVE-1900-9914';
 my $fixture_yaml = "t/var/$source_cve.yaml";
 my $root = tempdir(CLEANUP => 1);
+# cna inspects the CNA-root's git branch to enforce the "no encrypted ops on
+# main" policy, so the root must be a real git repo on a non-main branch.
+_init_root_repo($root);
 my $enc = "$root/encrypted";
 make_path($enc);
 my $yaml = "$enc/$cve.yaml";
@@ -74,10 +83,9 @@ sub _rewrite_cve_in_yaml ($path, $cve) {
   close($wh);
 }
 
-sub _current_branch () {
-  my $b = qx(git branch --show-current 2>/dev/null);
-  chomp $b;
-  return length($b) ? $b : undef;
+sub _init_root_repo ($dir) {
+  my $rc = system('git', 'init', '-q', '-b', 'cve-test-branch', $dir);
+  die "git init failed ($rc)\n" if $rc != 0;
 }
 
 sub _read_text ($path) {

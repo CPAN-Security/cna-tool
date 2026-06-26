@@ -8,6 +8,17 @@ use Test::More;
 
 # Isolate git config so the host environment cannot influence the test repo.
 my ($gitcfg_fh, $gitcfg) = tempfile();
+print {$gitcfg_fh} <<'GITCONFIG';
+[user]
+  name = CNA Test
+  email = cna-test@example.invalid
+[init]
+  defaultBranch = main
+[commit]
+  gpgsign = false
+[tag]
+  gpgsign = false
+GITCONFIG
 close($gitcfg_fh);
 $ENV{GIT_CONFIG_GLOBAL} = $gitcfg;
 $ENV{GIT_CONFIG_SYSTEM} = $gitcfg;
@@ -103,8 +114,6 @@ sub _commit_all ($dir, $msg) {
   die "git add failed ($rc_add)\n" if $rc_add != 0;
   my $rc_commit = system(
     'git', '-C', $dir,
-    '-c', 'user.name=Test User',
-    '-c', 'user.email=test@example.invalid',
     'commit', '-q', '-m', $msg,
   );
   die "git commit failed ($rc_commit)\n" if $rc_commit != 0;
