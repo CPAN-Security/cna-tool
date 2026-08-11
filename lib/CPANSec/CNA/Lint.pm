@@ -9,12 +9,13 @@ class CPANSec::CNA::Lint {
   method run_model ($model, %opts) {
     my $path = $opts{path} // $model->source_file // '';
     my $cpansec = $model->cpansec;
+    my $dists = $model->distributions;
 
     my @findings;
-    push @findings, _rule_title_repeated($cpansec, $path);
-    push @findings, _rule_template_tokens($cpansec, $path);
-    push @findings, _rule_announce_wording($cpansec, $path);
-    push @findings, _rule_title_style($cpansec, $path);
+    push @findings, _rule_title_repeated($cpansec, $path, $dists);
+    push @findings, _rule_template_tokens($cpansec, $path, $dists);
+    push @findings, _rule_announce_wording($cpansec, $path, $dists);
+    push @findings, _rule_title_style($cpansec, $path, $dists);
     push @findings, _rule_cvss_present($cpansec, $path);
     push @findings, _rule_solution_or_mitigation($cpansec, $path);
     push @findings, _rule_reference_quality($cpansec, $path);
@@ -59,9 +60,9 @@ sub _desc_first_line ($desc) {
   return '';
 }
 
-sub _rule_title_repeated ($cpansec, $path) {
-  my $title = _interpolate_version_range($cpansec, $cpansec->{title} // '');
-  my $desc = _interpolate_version_range($cpansec, $cpansec->{description} // '');
+sub _rule_title_repeated ($cpansec, $path, $dists) {
+  my $title = _interpolate_version_range($dists, $cpansec->{title} // '');
+  my $desc = _interpolate_version_range($dists, $cpansec->{description} // '');
   return () unless length $title && length $desc;
 
   my $first = _desc_first_line($desc);
@@ -77,7 +78,7 @@ sub _rule_title_repeated ($cpansec, $path) {
   );
 }
 
-sub _rule_template_tokens ($cpansec, $path) {
+sub _rule_template_tokens ($cpansec, $path, $dists) {
   my @bad;
   my @fields = (
     [title => ($cpansec->{title} // '')],
@@ -91,7 +92,7 @@ sub _rule_template_tokens ($cpansec, $path) {
     while ($text =~ /\{\{\s*([^{}]+?)\s*\}\}/g) {
       my $token = $1;
       if ($token eq 'VERSION_RANGE') {
-        my $phrase = template_version_range_from_affected($cpansec->{affected});
+        my $phrase = _version_range_phrase($dists);
         push @bad, "$name:{{VERSION_RANGE}}" unless length $phrase;
       } else {
         push @bad, "$name:{{$token}}";
@@ -114,12 +115,12 @@ sub _rule_template_tokens ($cpansec, $path) {
   );
 }
 
-sub _rule_announce_wording ($cpansec, $path) {
-  my $expected = _expected_announce_lead($cpansec);
+sub _rule_announce_wording ($cpansec, $path, $dists) {
+  my $expected = _expected_announce_lead($cpansec, $dists);
   return () unless length $expected;
 
-  my $title = _normalize_inline(_interpolate_version_range($cpansec, $cpansec->{title} // ''));
-  my $first = _normalize_inline(_desc_first_line(_interpolate_version_range($cpansec, $cpansec->{description} // '')));
+  my $title = _normalize_inline(_interpolate_version_range($dists, $cpansec->{title} // ''));
+  my $first = _normalize_inline(_desc_first_line(_interpolate_version_range($dists, $cpansec->{description} // '')));
 
   my @issues;
   push @issues, 'title' if length($title) && $title !~ /^\Q$expected\E\b/i;
@@ -136,8 +137,8 @@ sub _rule_announce_wording ($cpansec, $path) {
   );
 }
 
-sub _rule_title_style ($cpansec, $path) {
-  my $title = _interpolate_version_range($cpansec, $cpansec->{title} // '');
+sub _rule_title_style ($cpansec, $path, $dists) {
+  my $title = _interpolate_version_range($dists, $cpansec->{title} // '');
   return () unless length $title;
 
   my @issues;
@@ -157,23 +158,30 @@ sub _rule_title_style ($cpansec, $path) {
   );
 }
 
-sub _expected_announce_lead ($cpansec) {
+sub _expected_announce_lead ($cpansec, $dists) {
   my $module = _normalize_inline($cpansec->{module} // '');
   return '' unless length $module;
 
-  my $phrase = template_version_range_from_affected($cpansec->{affected});
+  my $phrase = _version_range_phrase($dists);
   return '' unless length $phrase;
 
   # The Perl interpreter core (distribution and module both 'perl') follows the
   # 'Perl <version range> ...' convention rather than the '<module> <version
   # range> for Perl ...' form used for CPAN distributions. Appending 'for Perl'
   # there would read as a doubled 'perl ... for Perl'.
-  my $distribution = _normalize_inline($cpansec->{distribution} // '');
+  my $distribution = _normalize_inline($dists->[0]{distribution} // '');
   if (lc($distribution) eq 'perl' && lc($module) eq 'perl') {
     return "Perl $phrase";
   }
 
   return "$module $phrase for Perl";
+}
+
+# A record affecting several distributions has no single version phrase, so the
+# wording rules stand down rather than guess which distribution leads.
+sub _version_range_phrase ($dists) {
+  return '' unless ref($dists) eq 'ARRAY' && @$dists == 1;
+  return template_version_range_from_affected($dists->[0]{versions});
 }
 
 sub _normalize_inline ($text) {
@@ -183,11 +191,11 @@ sub _normalize_inline ($text) {
   return $text;
 }
 
-sub _interpolate_version_range ($cpansec, $text) {
+sub _interpolate_version_range ($dists, $text) {
   return $text if !defined($text) || ref($text);
   my $out = $text;
   return $out unless $out =~ /\{\{\s*VERSION_RANGE\s*\}\}/;
-  my $phrase = template_version_range_from_affected($cpansec->{affected});
+  my $phrase = _version_range_phrase($dists);
   return $out unless length $phrase;
   $out =~ s/\{\{\s*VERSION_RANGE\s*\}\}/$phrase/g;
   return $out;

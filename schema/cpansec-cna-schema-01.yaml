@@ -5,9 +5,10 @@ properties:
   cpansec:
     type: object
     additionalProperties: false
+    # distribution is required only for the single-distribution spelling; the
+    # object form names each distribution itself. Enforced in CPANSec::CVE::Model.
     required:
       - cve
-      - distribution
       - module
       - affected
       - title
@@ -33,13 +34,49 @@ properties:
         type: string
         format: uri
 
+      # Either a list of version ranges for the single distribution named above,
+      # or a list of objects when several distributions are affected (a dual-life
+      # module lives both in perl core and in its own CPAN distribution).
       affected:
         type: array
         minItems: 1
         uniqueItems: true
         items:
-          type: string  # Format like "9.19 <= 9.31" (semantic version range)
-          pattern: "^(([^\\s]+\\s*(<=|<)\\s*[^\\s]+)|((<=|<)\\s*[^\\s]+)|([^\\s]+))$"
+          oneOf:
+            - type: string  # Format like "9.19 <= 9.31" (semantic version range)
+              pattern: "^(([^\\s]+\\s*(<=|<)\\s*[^\\s]+)|((<=|<)\\s*[^\\s]+)|([^\\s]+))$"
+            - type: object
+              additionalProperties: false
+              required:
+                - distribution
+                - versions
+              properties:
+                distribution:
+                  type: string
+                  pattern: "^[A-Za-z0-9_-]+$"
+                versions:
+                  type: array
+                  minItems: 1
+                  uniqueItems: true
+                  items:
+                    type: string
+                    pattern: "^(([^\\s]+\\s*(<=|<)\\s*[^\\s]+)|((<=|<)\\s*[^\\s]+)|([^\\s]+))$"
+                author:
+                  type: string
+                  pattern: "^[A-Z0-9]+$"
+                repo:
+                  type: string
+                  format: uri
+                files:
+                  type: array
+                  uniqueItems: true
+                  items:
+                    type: string
+                routines:
+                  type: array
+                  uniqueItems: true
+                  items:
+                    type: string
 
       title:
         type: string

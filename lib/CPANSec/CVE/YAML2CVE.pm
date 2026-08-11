@@ -66,7 +66,7 @@ class CPANSec::CVE::YAML2CVE {
     die "convert_model expects CPANSec::CVE::Model\n"
       unless eval { $model->isa('CPANSec::CVE::Model') };
 
-    my $json_obj = $self->_convert_cpansec_to_json($model->cpansec, $cna_only);
+    my $json_obj = $self->_convert_cpansec_to_json($model, $cna_only);
     $self->_validate_output_cve_schema($json_obj, !$cna_only);
     return $json_obj;
   }
@@ -106,35 +106,18 @@ class CPANSec::CVE::YAML2CVE {
     return ($doc, $schema);
   }
 
-  method _convert_cpansec_to_json ($in, $cna_only) {
+  method _convert_cpansec_to_json ($model, $cna_only) {
+    my $in = $model->cpansec;
     die "cpansec model data must be a hash\n" unless ref($in) eq 'HASH';
 
     my $cve_id = $in->{cve};
+    my $dists = $model->distributions;
 
-    my $title = normalize_single_line(_interpolate_templates($in, $in->{title}, 'cpansec.title'));
-    my $description = normalize_prose_text(_interpolate_templates($in, $in->{description}, 'cpansec.description'));
-
-    my %affected = (
-      collectionURL  => "https://cpan.org/modules",
-      defaultStatus  => "unaffected",
-      modules        => [ $in->{module} ],
-      packageName    => $in->{distribution},
-      # purl name is the distribution, never the module; CVE 5.2.0 forbids a version here.
-      packageURL     => "pkg:cpan/$in->{distribution}",
-      versions       => [ map { parse_affected_version($_) } @{array_ref($in->{affected}, "cpansec.affected")} ],
-    );
-
-    $affected{repo} = $in->{repo} if defined $in->{repo} && length $in->{repo};
-    $affected{programFiles} = [ @{array_ref($in->{files}, "cpansec.files")} ]
-      if exists $in->{files};
-    if (exists $in->{routines}) {
-      $affected{programRoutines} = [
-        map { +{ name => $_ } } @{array_ref($in->{routines}, "cpansec.routines")}
-      ];
-    }
+    my $title = normalize_single_line(_interpolate_templates($dists, $in->{title}, 'cpansec.title'));
+    my $description = normalize_prose_text(_interpolate_templates($dists, $in->{description}, 'cpansec.description'));
 
     my %cna = (
-      affected => [ \%affected ],
+      affected => [ map { _affected_entry($_, $in->{module}) } @$dists ],
       descriptions => [
         {
           lang => "en",
@@ -454,6 +437,31 @@ sub normalize_prose_text ($text) {
   return join("\n\n", @out);
 }
 
+sub _affected_entry ($entry, $module) {
+  my $distribution = $entry->{distribution};
+
+  my %affected = (
+    collectionURL  => "https://cpan.org/modules",
+    defaultStatus  => "unaffected",
+    modules        => [ $module ],
+    packageName    => $distribution,
+    # purl name is the distribution, never the module; CVE 5.2.0 forbids a version here.
+    packageURL     => "pkg:cpan/$distribution",
+    versions       => [ map { parse_affected_version($_) } @{array_ref($entry->{versions}, "cpansec.affected")} ],
+  );
+
+  $affected{repo} = $entry->{repo} if defined $entry->{repo} && length $entry->{repo};
+  $affected{programFiles} = [ @{array_ref($entry->{files}, "cpansec.files")} ]
+    if exists $entry->{files};
+  if (exists $entry->{routines}) {
+    $affected{programRoutines} = [
+      map { +{ name => $_ } } @{array_ref($entry->{routines}, "cpansec.routines")}
+    ];
+  }
+
+  return \%affected;
+}
+
 sub _interpolate_templates ($cpansec, $text, $field) {
   return $text if !defined $text || ref($text);
 
@@ -467,11 +475,17 @@ sub _interpolate_templates ($cpansec, $text, $field) {
   return $out;
 }
 
-sub _resolve_template_token ($cpansec, $full_token, $token_raw, $field) {
+sub _resolve_template_token ($dists, $full_token, $token_raw, $field) {
   my $token = $token_raw;
   $token =~ s/^\s+|\s+$//g;
   if ($token eq 'VERSION_RANGE') {
-    my $phrase = template_version_range_from_affected($cpansec->{affected});
+    # With several distributions the ranges differ, so a bare token cannot say
+    # which one it means. Leave it unexpanded rather than pick the first.
+    if (@$dists > 1) {
+      warn "$field contains {{VERSION_RANGE}} but the record affects multiple distributions\n";
+      return $full_token;
+    }
+    my $phrase = template_version_range_from_affected($dists->[0]{versions});
     if (!length $phrase) {
       warn "$field contains {{VERSION_RANGE}} but no version range could be derived from cpansec.affected\n";
       return $full_token;
