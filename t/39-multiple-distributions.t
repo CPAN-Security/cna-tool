@@ -4,6 +4,7 @@ use v5.42;
 use Test::More;
 
 use lib 'lib';
+use CPANSec::CVE::Announce ();
 use CPANSec::CVE::Model ();
 use CPANSec::CVE::YAML2CVE ();
 
@@ -44,6 +45,20 @@ subtest 'the single-distribution spelling still desugars to one entry' => sub {
   is(scalar @$dists, 1, 'one normalized entry');
   is($dists->[0]{distribution}, 'Apache-AuthAny', 'distribution lifted from the flat key');
   is_deeply($dists->[0]{versions}, ['0.19 <= 0.201'], 'version ranges lifted from affected');
+};
+
+subtest 'the announcement repeats a block per distribution' => sub {
+  my $json = $converter->convert_yaml_file('t/var/CVE-1900-9997.yaml');
+  my $text = CPANSec::CVE::Announce->new->render_cve5_hash($json);
+
+  like($text, qr/^\s*Distribution:\s+Encode$/m, 'names the CPAN distribution');
+  like($text, qr/^\s*Distribution:\s+perl$/m, 'names perl core');
+  like($text, qr{^\s*MetaCPAN:\s+\Qhttps://metacpan.org/dist/perl\E$}m, 'per-distribution MetaCPAN link');
+  like($text, qr{^\s*VCS Repo:\s+\Qhttps://github.com/Perl/perl5\E$}m, 'per-distribution repo');
+
+  # Each range must stay attached to its own distribution.
+  like($text, qr/Distribution:\s+Encode\n\s*Versions:\s+through 3\.20\n/, 'Encode keeps its range');
+  like($text, qr/Distribution:\s+perl\n\s*Versions:\s+from 5\.36\.0 through 5\.38\.2\n/, 'perl keeps its range');
 };
 
 subtest 'contradictory spellings are rejected' => sub {

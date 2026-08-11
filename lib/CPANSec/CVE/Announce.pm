@@ -25,8 +25,8 @@ class CPANSec::CVE::Announce {
 
     local $Text::Wrap::columns = $wrap_columns;
 
-    my $aff0 = $cna->{affected}->[0] // {};
-    my $printed_version_header;
+    my @affected = @{$cna->{affected} // []};
+    @affected = ({}) unless @affected;
 
     my @lines = (
       "Subject: $cve->{cveMetadata}->{cveId}: $cna->{title}",
@@ -35,11 +35,7 @@ class CPANSec::CVE::Announce {
       _header([$cve->{cveMetadata}->{cveId}, "CPAN Security Group"], "="),
       "",
       _dt("CVE ID", $cve->{cveMetadata}->{cveId}),
-      _dt("Distribution", $aff0->{packageName}),
-      (map { _dt($printed_version_header++ ? "" : "Versions", $_) } phrases_from_cve_versions($aff0->{versions})),
-      "",
-      _dt("MetaCPAN", "https://metacpan.org/dist/" . ($aff0->{packageName} // '')),
-      ($aff0->{repo} ? _dt("VCS Repo", $aff0->{repo}) : ()),
+      _distribution_blocks(@affected),
       "",
       "",
       Text::Wrap::wrap('', '', $cna->{title}),
@@ -80,6 +76,29 @@ sub _header ($t, $l = "-") {
   return ref($t) eq 'ARRAY'
     ? (($l x 72), sprintf("%-24s %47s", $t->@*), ($l x 72))
     : ($t, ($l x length($t)));
+}
+
+# One labelled block per affected distribution, blank-line separated. A record
+# with a single distribution renders exactly as it always has; a dual-life
+# record repeats the block so each version range stays tied to its distribution.
+sub _distribution_blocks (@affected) {
+  my @out;
+  for my $aff (@affected) {
+    push @out, "" if @out;
+    push @out, _distribution_lines($aff);
+  }
+  return @out;
+}
+
+sub _distribution_lines ($aff) {
+  my $printed_version_header;
+  return (
+    _dt("Distribution", $aff->{packageName}),
+    (map { _dt($printed_version_header++ ? "" : "Versions", $_) } phrases_from_cve_versions($aff->{versions})),
+    "",
+    _dt("MetaCPAN", "https://metacpan.org/dist/" . ($aff->{packageName} // '')),
+    ($aff->{repo} ? _dt("VCS Repo", $aff->{repo}) : ()),
+  );
 }
 
 sub _dt ($k, $v) {
