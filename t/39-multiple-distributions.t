@@ -4,6 +4,7 @@ use v5.42;
 use File::Copy ();
 use File::Path ();
 use File::Temp ();
+use JSON::PP ();
 use Test::More;
 
 use lib 'lib';
@@ -79,6 +80,22 @@ subtest 'a dual-life record survives import with the guard on' => sub {
   like($yaml, qr/^\s+- distribution: Encode$/m, 'Encode entry regenerated');
   like($yaml, qr/^\s+- distribution: perl$/m, 'perl entry regenerated');
   unlike($yaml, qr/^  distribution:/m, 'no flat distribution key alongside the object form');
+};
+
+subtest 'divergent per-entry modules cannot be silently lost' => sub {
+  # The macro carries one shared module, so a record whose entries name
+  # different modules is not representable. The guard must say so rather than
+  # quietly keeping the first.
+  my $doc = $converter->convert_yaml_file('t/var/CVE-1900-9997.yaml');
+  $doc->{containers}{cna}{affected}[1]{modules} = ['PerlIO::encoding'];
+
+  my ($fh, $json_path) = File::Temp::tempfile(SUFFIX => '.json', UNLINK => 1);
+  print {$fh} JSON::PP->new->utf8->canonical->encode($doc);
+  close($fh);
+
+  my $ok = eval { CPANSec::CVE::CVE2YAML->new->convert_json_file_to_yaml($json_path, guard => 1); 1 };
+  ok(!$ok, 'guard rejects a record it cannot represent');
+  like($@, qr/distributions\[1\]\.module differs/, 'diff points at the offending entry');
 };
 
 subtest 'the CLI handles an object-form record' => sub {

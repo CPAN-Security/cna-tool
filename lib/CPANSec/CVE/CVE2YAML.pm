@@ -216,6 +216,10 @@ sub _project_roundtrip_view ($doc) {
     # Every entry is projected, so a dropped distribution cannot slip past.
     distributions => [ map { +{
       distribution => $_->{packageName},
+      # Effective module per entry, so a record whose entries name different
+      # modules fails the guard instead of collapsing to the first one. Reading
+      # it through _module_of keeps legacy product-only records comparable.
+      module => _module_of($_),
       repo => $_->{repo},
       versions => [ map { _normalize_version_entry($_) } @{$_->{versions} // []} ],
       files => [ sort @{$_->{programFiles} // []} ],
