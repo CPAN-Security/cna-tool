@@ -107,6 +107,49 @@ subtest 'placeholder distributions are caught in the object form' => sub {
   like($ids, qr/placeholder_content/, 'a TODO distribution is still flagged without a flat key');
 };
 
+subtest 'contradictory records annotate rather than crash' => sub {
+  # distribution stopped being schema-required, so these are caught in the model
+  # instead. They must still reach CI as inline annotations, not as a bare die.
+  my %bad = (
+    'CVE-1900-0001' => <<'Y',
+cpansec:
+  cve: CVE-1900-0001
+  module: Foo
+  affected: ["<= 1.0"]
+  title: Foo through 1.0 for Perl breaks
+  description: Foo through 1.0 for Perl breaks.
+  references:
+    - link: https://example.com/a
+Y
+    'CVE-1900-0002' => <<'Y',
+cpansec:
+  cve: CVE-1900-0002
+  module: Foo
+  affected:
+    - "<= 1.0"
+    - distribution: Bar
+      versions: ["<= 2.0"]
+  title: Foo through 1.0 for Perl breaks
+  description: Foo through 1.0 for Perl breaks.
+  references:
+    - link: https://example.com/a
+Y
+  );
+
+  my $root = File::Temp::tempdir(CLEANUP => 1);
+  File::Path::make_path("$root/cves");
+  for my $cve (sort keys %bad) {
+    open my $fh, '>', "$root/cves/$cve.yaml" or die $!;
+    print {$fh} $bad{$cve};
+    close $fh;
+
+    my $out = qx(scripts/cna --cpansec-cna-root '$root' check --format github $cve 2>&1);
+    isnt($? >> 8, 0, "$cve fails check");
+    like($out, qr{^::error file=\Qcves/$cve.yaml\E,line=\d+,title=schema_validation::}m,
+      "$cve reports an annotated schema_validation error");
+  }
+};
+
 subtest 'contradictory spellings are rejected' => sub {
   my $mixed = CPANSec::CVE::Model->new(cpansec => {
     affected => ['<= 1.0', { distribution => 'Foo', versions => ['<= 2.0'] }],

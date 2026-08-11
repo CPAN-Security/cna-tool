@@ -55,10 +55,17 @@ class CPANSec::CVE::YAML2CVE {
     die "Top-level 'cpansec' object is required\n"
       unless ref($doc) eq 'HASH' && ref($doc->{cpansec}) eq 'HASH';
 
-    return CPANSec::CVE::Model->new(
+    my $model = CPANSec::CVE::Model->new(
       cpansec => $doc->{cpansec},
       source_file => $infile,
     );
+
+    # Normalize once here so a contradictory affected block fails at load, in the
+    # same place schema errors do. Callers that only load a model then lint it
+    # would otherwise hit the failure later, outside their validation handling.
+    $model->distributions;
+
+    return $model;
   }
 
   method convert_model ($model, %opts) {
