@@ -209,7 +209,7 @@ class CPANSec::CVE::YAML2CVE {
       ? \%cna
       : {
           dataType => "CVE_RECORD",
-          dataVersion => "5.1",
+          dataVersion => "5.2.0",
           cveMetadata => {
             assignerOrgId => $assigner_org_id,
             cveId => $cve_id,
