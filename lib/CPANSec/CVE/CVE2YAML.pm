@@ -50,13 +50,17 @@ class CPANSec::CVE::CVE2YAML {
     my %cp = (
       cve => $doc->{cveMetadata}{cveId},
       distribution => _normalize_import_text($aff->{packageName} // ''),
-      module => _normalize_import_text($aff->{product} // ''),
-      author => _normalize_import_text($aff->{vendor} // ''),
+      module => _normalize_import_text(_module_of($aff) // ''),
       affected => [ map { _version_to_expr($_) } @{$aff->{versions} // []} ],
       title => _normalize_import_text($cna->{title} // ''),
       description => _normalize_import_text(_first_en_value($cna->{descriptions})),
       references => [ map { _reference_to_cpansec($_) } @{$cna->{references} // []} ],
     );
+
+    # Only legacy records carry the PAUSE ID, in vendor; nothing emits it now.
+    if (defined $aff->{vendor} && length $aff->{vendor}) {
+      $cp{author} = _normalize_import_text($aff->{vendor});
+    }
 
     if (defined $aff->{repo} && length $aff->{repo}) {
       $cp{repo} = _normalize_import_text($aff->{repo});
@@ -205,8 +209,9 @@ sub _project_roundtrip_view ($doc) {
   return {
     cve => $doc->{cveMetadata}->{cveId},
     distribution => $affected->{packageName},
-    module => $affected->{product},
-    author => $affected->{vendor},
+    module => _module_of($affected),
+    # author is deliberately absent: nothing emits the PAUSE ID any more, so it
+    # cannot round-trip and guarding it would fail on every legacy record.
     repo => $affected->{repo},
     affected => [ map { _normalize_version_entry($_) } @{$affected->{versions} // []} ],
     files => [ sort @{$affected->{programFiles} // []} ],
@@ -234,6 +239,13 @@ sub _project_roundtrip_view ($doc) {
            cmp (($b->{time} // '') . "\0" . ($b->{value} // '') . "\0" . ($b->{lang} // '')) } @{$cna->{timeline} // []}
     ],
   };
+}
+
+# The module lives in modules[] since 5.2.0; product carried it in older records.
+sub _module_of ($aff) {
+  my $modules = $aff->{modules};
+  return $modules->[0] if ref($modules) eq 'ARRAY' && @$modules;
+  return $aff->{product};
 }
 
 sub _normalize_version_entry ($v) {

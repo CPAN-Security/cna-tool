@@ -117,11 +117,10 @@ class CPANSec::CVE::YAML2CVE {
     my %affected = (
       collectionURL  => "https://cpan.org/modules",
       defaultStatus  => "unaffected",
+      modules        => [ $in->{module} ],
       packageName    => $in->{distribution},
       # purl name is the distribution, never the module; CVE 5.2.0 forbids a version here.
       packageURL     => "pkg:cpan/$in->{distribution}",
-      product        => $in->{module},
-      vendor         => $in->{author},
       versions       => [ map { parse_affected_version($_) } @{array_ref($in->{affected}, "cpansec.affected")} ],
     );
 

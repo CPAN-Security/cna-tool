@@ -9,7 +9,6 @@ properties:
       - cve
       - distribution
       - module
-      - author
       - affected
       - title
       - description
