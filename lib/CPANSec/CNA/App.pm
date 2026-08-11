@@ -187,11 +187,20 @@ USAGE
     if ($self->_confirm("Fetch metadata from MetaCPAN for '$module'?", 1)) {
       %prefill = $self->_prefill_from_metacpan($module);
     }
-    my $distribution = $prefill{distribution} // do {
-      my $d = $module;
-      $d =~ s/::/-/g;
-      $d;
-    };
+    # The distribution becomes the Package URL, so an unchecked guess publishes
+    # an identifier that resolves to nothing.
+    my $distribution = $prefill{distribution};
+    if (defined $distribution && length $distribution) {
+      print "Distribution '$distribution' confirmed via MetaCPAN.\n";
+    } else {
+      $distribution = $module =~ s/::/-/gr;
+      print <<"UNVERIFIED";
+WARNING: distribution '$distribution' was derived from the module name and is
+         NOT confirmed against MetaCPAN, so pkg:cpan/$distribution may not
+         resolve (LWP::UserAgent, for instance, ships in libwww-perl).
+         Check it before publishing.
+UNVERIFIED
+    }
     my $author = $prefill{author} // 'TODO';
     my $repo = $prefill{repo};
 
