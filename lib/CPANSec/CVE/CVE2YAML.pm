@@ -45,32 +45,34 @@ class CPANSec::CVE::CVE2YAML {
   method convert_cve_doc_to_cpansec ($doc) {
     my $cna = $doc->{containers}{cna}
       or die "Expected CVE JSON with containers.cna\n";
-    my $aff = $cna->{affected}[0] // {};
+    my @affected = @{$cna->{affected} // []};
+    my $aff = $affected[0] // {};
 
     my %cp = (
       cve => $doc->{cveMetadata}{cveId},
-      distribution => _normalize_import_text($aff->{packageName} // ''),
       module => _normalize_import_text(_module_of($aff) // ''),
-      affected => [ map { _version_to_expr($_) } @{$aff->{versions} // []} ],
       title => _normalize_import_text($cna->{title} // ''),
       description => _normalize_import_text(_first_en_value($cna->{descriptions})),
       references => [ map { _reference_to_cpansec($_) } @{$cna->{references} // []} ],
     );
 
+    my @entries = map { _distribution_entry($_) } @affected;
+    if (@entries > 1) {
+      $cp{affected} = \@entries;
+    } else {
+      # A single distribution keeps the flat spelling, so existing records are
+      # not rewritten into the object form on import.
+      my $entry = $entries[0] // { distribution => '', versions => [] };
+      $cp{distribution} = $entry->{distribution};
+      $cp{affected} = $entry->{versions};
+      for my $key (qw(repo files routines)) {
+        $cp{$key} = $entry->{$key} if exists $entry->{$key};
+      }
+    }
+
     # Only legacy records carry the PAUSE ID, in vendor; nothing emits it now.
     if (defined $aff->{vendor} && length $aff->{vendor}) {
       $cp{author} = _normalize_import_text($aff->{vendor});
-    }
-
-    if (defined $aff->{repo} && length $aff->{repo}) {
-      $cp{repo} = _normalize_import_text($aff->{repo});
-    }
-
-    if (ref($aff->{programFiles}) eq 'ARRAY' && @{$aff->{programFiles}}) {
-      $cp{files} = [ map { _normalize_import_text($_) } @{$aff->{programFiles}} ];
-    }
-    if (ref($aff->{programRoutines}) eq 'ARRAY' && @{$aff->{programRoutines}}) {
-      $cp{routines} = [ map { _normalize_import_text($_->{name}) } @{$aff->{programRoutines}} ];
     }
 
     my @cwes = _extract_cwe_descriptions($cna->{problemTypes});
@@ -204,18 +206,21 @@ sub _impact_to_string ($impact) {
 
 sub _project_roundtrip_view ($doc) {
   my $cna = $doc->{containers}->{cna};
-  my $affected = $cna->{affected}->[0] // {};
+  my @affected = @{$cna->{affected} // []};
 
   return {
     cve => $doc->{cveMetadata}->{cveId},
-    distribution => $affected->{packageName},
-    module => _module_of($affected),
+    module => _module_of($affected[0] // {}),
     # author is deliberately absent: nothing emits the PAUSE ID any more, so it
     # cannot round-trip and guarding it would fail on every legacy record.
-    repo => $affected->{repo},
-    affected => [ map { _normalize_version_entry($_) } @{$affected->{versions} // []} ],
-    files => [ sort @{$affected->{programFiles} // []} ],
-    routines => [ sort map { $_->{name} } @{$affected->{programRoutines} // []} ],
+    # Every entry is projected, so a dropped distribution cannot slip past.
+    distributions => [ map { +{
+      distribution => $_->{packageName},
+      repo => $_->{repo},
+      versions => [ map { _normalize_version_entry($_) } @{$_->{versions} // []} ],
+      files => [ sort @{$_->{programFiles} // []} ],
+      routines => [ sort map { $_->{name} } @{$_->{programRoutines} // []} ],
+    } } @affected ],
     title => _normalize_ws($cna->{title} // ""),
     description => _normalize_ws(_first_en_value($cna->{descriptions})),
     cwes => [ sort map { _normalize_ws($_) } _extract_cwe_descriptions($cna->{problemTypes}) ],
@@ -239,6 +244,22 @@ sub _project_roundtrip_view ($doc) {
            cmp (($b->{time} // '') . "\0" . ($b->{value} // '') . "\0" . ($b->{lang} // '')) } @{$cna->{timeline} // []}
     ],
   };
+}
+
+sub _distribution_entry ($aff) {
+  my %entry = (
+    distribution => _normalize_import_text($aff->{packageName} // ''),
+    versions     => [ map { _version_to_expr($_) } @{$aff->{versions} // []} ],
+  );
+
+  $entry{repo} = _normalize_import_text($aff->{repo})
+    if defined $aff->{repo} && length $aff->{repo};
+  $entry{files} = [ map { _normalize_import_text($_) } @{$aff->{programFiles}} ]
+    if ref($aff->{programFiles}) eq 'ARRAY' && @{$aff->{programFiles}};
+  $entry{routines} = [ map { _normalize_import_text($_->{name}) } @{$aff->{programRoutines}} ]
+    if ref($aff->{programRoutines}) eq 'ARRAY' && @{$aff->{programRoutines}};
+
+  return \%entry;
 }
 
 # The module lives in modules[] since 5.2.0; product carried it in older records.
@@ -335,6 +356,15 @@ sub _preserve_value_for_key ($ypp, $key, $value) {
   return $value if !ref($value);
 
   if (ref($value) eq 'ARRAY') {
+    if ($key eq 'affected') {
+      # Version-range strings pass through; distribution objects get a stable
+      # key order so multi-distribution records round-trip identically.
+      return [ map {
+        ref($_) eq 'HASH'
+          ? _preserved_hash_with_order($ypp, $_, [qw(distribution versions author repo files routines)])
+          : $_
+      } @$value ];
+    }
     if ($key eq 'references') {
       return [ map { _preserved_hash_with_order($ypp, $_, [qw(link name tags)]) } @$value ];
     }

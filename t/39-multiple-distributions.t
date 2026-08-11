@@ -1,10 +1,12 @@
 use strict;
 use v5.42;
 
+use File::Temp ();
 use Test::More;
 
 use lib 'lib';
 use CPANSec::CVE::Announce ();
+use CPANSec::CVE::CVE2YAML ();
 use CPANSec::CVE::Model ();
 use CPANSec::CVE::YAML2CVE ();
 
@@ -59,6 +61,21 @@ subtest 'the announcement repeats a block per distribution' => sub {
   # Each range must stay attached to its own distribution.
   like($text, qr/Distribution:\s+Encode\n\s*Versions:\s+through 3\.20\n/, 'Encode keeps its range');
   like($text, qr/Distribution:\s+perl\n\s*Versions:\s+from 5\.36\.0 through 5\.38\.2\n/, 'perl keeps its range');
+};
+
+subtest 'a dual-life record survives import with the guard on' => sub {
+  my ($fh, $json_path) = File::Temp::tempfile(SUFFIX => '.json', UNLINK => 1);
+  print {$fh} $converter->convert_yaml_file_to_json('t/var/CVE-1900-9997.yaml');
+  close($fh);
+
+  my $yaml = eval { CPANSec::CVE::CVE2YAML->new->convert_json_file_to_yaml($json_path, guard => 1) };
+  is($@, '', 'round-trip guard passes for multiple distributions') or diag $@;
+
+  # Round-tripping must regenerate the object spelling, not silently collapse
+  # to the first distribution.
+  like($yaml, qr/^\s+- distribution: Encode$/m, 'Encode entry regenerated');
+  like($yaml, qr/^\s+- distribution: perl$/m, 'perl entry regenerated');
+  unlike($yaml, qr/^  distribution:/m, 'no flat distribution key alongside the object form');
 };
 
 subtest 'contradictory spellings are rejected' => sub {

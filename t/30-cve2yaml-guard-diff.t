@@ -33,6 +33,10 @@ my $err = $@ // '';
 ok(!$ok, 'guard fails when source projection cannot round-trip exactly');
 like($err, qr/source\/rebuilt projections differ/, 'error explains guard mismatch');
 like($err, qr/Projection diff \(source vs rebuilt\):/, 'error includes projection diff heading');
-like($err, qr/affected\[0\]\.versionType/, 'error includes differing field path');
+like(
+  $err,
+  qr/distributions\[0\]\.versions\[0\]\.versionType/,
+  'error includes differing field path, scoped to the distribution it came from',
+);
 
 done_testing();
