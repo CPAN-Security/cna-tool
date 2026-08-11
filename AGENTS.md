@@ -214,6 +214,46 @@ YAML validation:
 - YAML files include language-server hint comment for editor tooling.
 - Only `.yaml` source files are supported (`.yml` is intentionally ignored).
 
+### Affected distributions
+
+`cpansec.affected` accepts two spellings, told apart by element type:
+
+- An array of **version-range strings**, for the single distribution named by the
+  record-level `distribution:` key. This is the common case and is unchanged.
+- An array of **objects**, each with its own `distribution:` and `versions:`, when one
+  vulnerability affects several distributions. A dual-life module is the motivating case,
+  where the same flaw affects both perl core and the standalone CPAN distribution across
+  different version ranges.
+
+```yaml
+cpansec:
+  module: Encode          # record level, shared by every entry
+  affected:
+    - distribution: Encode
+      versions: ["<= 3.20"]
+    - distribution: perl
+      versions: ["5.36.0 <= 5.38.2"]
+```
+
+Mixing the two spellings, or combining the object form with a record-level `distribution:`,
+is rejected. `CPANSec::CVE::Model::distributions` normalizes whichever spelling was used into
+one list, so `YAML2CVE`, `CVE2YAML`, `Announce` and `Lint` all consume a single shape — add
+new consumers there rather than reading `cpansec.affected` directly.
+
+Announcements render one labelled block per distribution, so each version range stays bound
+to the distribution it belongs to.
+
+### Emitted identifiers
+
+- CPAN packages are identified by `collectionURL` + `packageName` + `packageURL`, plus the
+  module in `modules[]`. `vendor` and `product` are deliberately **not** emitted: they are
+  commercial-software vocabulary, and the schema's `anyOf` is satisfied without them.
+- `packageURL` is the bare distribution form, `pkg:cpan/<distribution>` — no namespace, no
+  `author` qualifier, and never a version, which CVE 5.2.0 forbids.
+- Because nothing emits the PAUSE ID any more, `cpansec.author` is **optional** and serves as
+  local provenance only. It reaches no consumer and does not round-trip through import.
+- Records are emitted as `dataVersion` `5.2.0`.
+
 JSON validation:
 - Prefer upstream schema refs from `cve-schema/schema/`.
 - Fallback file: `cve-record-format-5.2.0.json`.
@@ -259,7 +299,8 @@ Fixtures:
 - If CLI requires canonical locations (like `cves/<CVE>.yaml`), copy fixture from `t/var` into temporary/staged file and clean up.
 
 Current suite:
-- `prove -lr t` should pass without network.
+- `nix develop --offline -c prove -lr t` should pass without network. The cpanfile deps come
+  from `flake.nix`, so a bare `prove -lr t` fails every file on a missing `JSON::Validator`.
 
 ## Data/Output Compatibility Notes
 
@@ -293,9 +334,7 @@ Publication transition for sensitive CVEs:
 ## Script Inventory
 
 - `scripts/cpansec-cna`: primary workflow CLI (`init`, `check`, `build`, `emit`, `announce`, `import`, `reconcile`)
-- `scripts/yaml2cve`: low-level YAML->CVE conversion and schema validation helper
-- `scripts/cve2announce`: announcement rendering helper
-- `scripts/canonicalize-json`: canonical JSON formatting for deterministic diffs
+- `scripts/cna`: short alias for the same CLI
 
 ## Migration Plan: Split Tooling from Data Repo
 
@@ -319,7 +358,7 @@ Recommended follow-ups after split:
 
 Before making behavior changes:
 - Confirm command semantics in `CPANSec::CNA::App`.
-- Run full tests: `prove -lr t`.
+- Run full tests: `nix develop --offline -c prove -lr t`.
 - Ensure no new network path is reachable from tests.
 - Verify fixture discipline (`t/var` only as source fixtures).
 

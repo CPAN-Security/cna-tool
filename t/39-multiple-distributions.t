@@ -1,10 +1,13 @@
 use strict;
 use v5.42;
 
+use File::Copy ();
+use File::Path ();
 use File::Temp ();
 use Test::More;
 
 use lib 'lib';
+use CPANSec::CNA::Lint ();
 use CPANSec::CVE::Announce ();
 use CPANSec::CVE::CVE2YAML ();
 use CPANSec::CVE::Model ();
@@ -76,6 +79,32 @@ subtest 'a dual-life record survives import with the guard on' => sub {
   like($yaml, qr/^\s+- distribution: Encode$/m, 'Encode entry regenerated');
   like($yaml, qr/^\s+- distribution: perl$/m, 'perl entry regenerated');
   unlike($yaml, qr/^  distribution:/m, 'no flat distribution key alongside the object form');
+};
+
+subtest 'the CLI handles an object-form record' => sub {
+  my $root = File::Temp::tempdir(CLEANUP => 1);
+  File::Path::make_path("$root/cves");
+  File::Copy::copy('t/var/CVE-1900-9997.yaml', "$root/cves/CVE-1900-9997.yaml")
+    or die "cannot stage fixture: $!";
+
+  my $json = qx(scripts/cna --cpansec-cna-root '$root' emit CVE-1900-9997 2>&1);
+  is($? >> 8, 0, 'emit succeeds') or diag $json;
+  like($json, qr/pkg:cpan\/perl/, 'emit reaches the second distribution');
+
+  my $text = qx(scripts/cna --cpansec-cna-root '$root' announce CVE-1900-9997 2>&1);
+  is($? >> 8, 0, 'announce succeeds') or diag $text;
+  like($text, qr/Distribution:\s+perl/, 'announce reaches the second distribution');
+};
+
+subtest 'placeholder distributions are caught in the object form' => sub {
+  my $model = CPANSec::CVE::Model->new(cpansec => {
+    cve => 'CVE-1900-0001',
+    module => 'Foo',
+    affected => [{ distribution => 'TODO', versions => ['<= 1.0'] }],
+  });
+
+  my $ids = join ',', map { $_->{id} } @{CPANSec::CNA::Lint->new->run_model($model, path => '')};
+  like($ids, qr/placeholder_content/, 'a TODO distribution is still flagged without a flat key');
 };
 
 subtest 'contradictory spellings are rejected' => sub {

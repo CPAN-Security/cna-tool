@@ -21,7 +21,7 @@ class CPANSec::CNA::Lint {
     push @findings, _rule_reference_quality($cpansec, $path);
     push @findings, _rule_metacpan_changelog_version_pinned($cpansec, $path);
     push @findings, _rule_description_length($cpansec, $path);
-    push @findings, _rule_placeholders($cpansec, $path);
+    push @findings, _rule_placeholders($cpansec, $path, $dists);
 
     return \@findings;
   }
@@ -326,13 +326,24 @@ sub _metacpan_changelog_is_version_pinned ($url) {
   return $url =~ m{^https?://metacpan\.org/(?:release|source)/(?:[^/?#]+/)?[^/?#]*-(?:v?\d)[^/?#]*(?:/|$)}i ? 1 : 0;
 }
 
-sub _rule_placeholders ($cpansec, $path) {
+sub _rule_placeholders ($cpansec, $path, $dists) {
   my @hits;
-  for my $key (qw(title description distribution module author)) {
+  for my $key (qw(title description module author)) {
     my $v = $cpansec->{$key};
     next if ref($v);
     next unless defined $v;
     push @hits, $key if $v =~ /\b(TODO|TBD|example\.invalid|FIXME)\b/i;
+  }
+
+  # Read the distribution from the normalized entries: the object spelling has
+  # no record-level distribution key, and 'TODO' is a valid distribution name.
+  for my $dist (@$dists) {
+    my $name = $dist->{distribution};
+    next unless defined $name && !ref($name);
+    if ($name =~ /\b(TODO|TBD|example\.invalid|FIXME)\b/i) {
+      push @hits, 'distribution';
+      last;
+    }
   }
 
   my $refs = $cpansec->{references};
