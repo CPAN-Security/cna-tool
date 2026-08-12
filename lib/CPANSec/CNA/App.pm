@@ -76,11 +76,11 @@ Commands:
   check [CVE-ID] [--changed] [--format text|github] [--strict]
                                     Validate YAML + lint findings (and JSON drift if present)
                                     Use --pr-policy --base-sha <sha> to enforce announce PR rules
-  build [CVE-ID] [--strict] [--force]
+  build [CVE-ID] [--strict]
                                     Validate/lint and write <CVE-ID>.json next to source YAML
   emit [CVE-ID] [--strict] [--cna-container-only]
                                     Validate/lint and print generated JSON to stdout
-  announce [CVE-ID] [--write|--output path] [--force]
+  announce [CVE-ID] [--write|--output path]
                                     Render announcement text to stdout or file
   edit [CVE-ID]
                                     Open CVE YAML in $VISUAL/$EDITOR (or vi)
@@ -303,7 +303,7 @@ UNVERIFIED
       push @positionals, $a;
     }
 
-    die "Usage: cna build [CVE-ID] [--strict] [--force]\n" unless @positionals <= 1;
+    die "Usage: cna build [CVE-ID] [--strict]\n" unless @positionals <= 1;
     my $cve = $positionals[0] // $self->_default_cve_from_context
       // die "No CVE provided and no default found (set CPANSEC_CNA_CVE or use a CVE-prefixed branch name).\n";
     my $yaml = $self->_find_yaml_for_cve($cve);
@@ -321,10 +321,9 @@ UNVERIFIED
     my $cve_obj = CPANSec::CVE->from_yaml_file($yaml);
     my $json = $cve_obj->to_cve5_json;
 
+    # No overwrite prompt: writing this file is what the command does, the
+    # content is regenerated from the YAML, and it is tracked in git.
     (my $json_file = $yaml) =~ s/\.yaml$/.json/i;
-    if (-f $json_file && !$opt{force}) {
-      die "Aborted.\n" unless $self->_confirm("$json_file exists. Overwrite?", 0);
-    }
     $self->_assert_encrypted_write_safe($json_file);
 
     open(my $fh, '>', $json_file) or die "Cannot write $json_file: $!\n";
@@ -380,7 +379,7 @@ UNVERIFIED
       push @positionals, $a;
     }
 
-    die "Usage: cna announce [CVE-ID] [--write|--output path] [--force]\n"
+    die "Usage: cna announce [CVE-ID] [--write|--output path]\n"
       unless @positionals <= 1;
     die "--write and --output cannot be combined\n" if $opt{write} && defined $opt{output};
 
@@ -395,10 +394,9 @@ UNVERIFIED
     if (defined $opt{output} || $opt{write}) {
       my $default_dir = 'announce';
       my $default_file = "$cve.txt";
+      # No overwrite prompt: --write/--output asked for the file to be written,
+      # and the text is regenerated from the YAML.
       my $out = defined($opt{output}) ? $opt{output} : File::Spec->catfile($default_dir, $default_file);
-      if (-f $out && !$opt{force}) {
-        die "Aborted.\n" unless $self->_confirm("$out exists. Overwrite?", 0);
-      }
       $self->_assert_encrypted_write_safe($out);
       my $dir = dirname($out);
       make_path($dir) unless -d $dir;

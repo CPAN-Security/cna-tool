@@ -112,7 +112,8 @@ The tooling is being prepared to move to a separate project. This guide is the h
 ### 4. Build or Emit JSON
 - Build/writes file:
   - `cpansec-cna build CVE-YYYY-NNNN`
-  - Writes `cves/CVE-YYYY-NNNN.json`.
+  - Writes `cves/CVE-YYYY-NNNN.json`, overwriting without prompting: writing that file is what
+    the command does, and its content is regenerated from the YAML.
 - Emit/stdout only:
   - `cpansec-cna emit CVE-YYYY-NNNN`
   - `cpansec-cna emit CVE-YYYY-NNNN --cna-container-only`
@@ -381,9 +382,9 @@ When changing schema/lint:
 
 - `cpansec-cna init [--force] [--encrypted] <CVE> <Module>`
 - `cpansec-cna check [CVE] [--changed] [--format text|github] [--strict]`
-- `cpansec-cna build [CVE] [--strict] [--force]`
+- `cpansec-cna build [CVE] [--strict]`
 - `cpansec-cna emit [CVE] [--strict] [--cna-container-only]`
-- `cpansec-cna announce [CVE] [--write|--output PATH] [--force]`
+- `cpansec-cna announce [CVE] [--write|--output PATH]`
 - `cpansec-cna import <CVE|PATH.json> [--force] [--no-guard]`
 - `cpansec-cna reconcile [CVE] [--api-base URL] [--verbose]`
 - Global:
