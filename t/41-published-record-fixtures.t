@@ -87,4 +87,28 @@ subtest 'the bundled-handler advisory as two distributions' => sub {
   like($text, qr/Distribution:\s+Imager\n\s*Versions:\s+before 1\.032\n/, 'second block');
 };
 
+subtest 'a dual-life module as CPAN distribution plus perl core' => sub {
+  my $cna = $converter->convert_yaml_file('t/var/CVE-1900-9992.yaml')->{containers}{cna};
+  my $affected = $cna->{affected};
+
+  is(scalar @$affected, 2, 'both the distribution and the core copy are recorded');
+
+  is($affected->[0]{packageName}, 'Storable', 'CPAN distribution first');
+  is($affected->[0]{versions}[0]{lessThan}, '3.41', 'distribution fix version');
+
+  # perl 5.44.0's perldelta records Storable going 3.37 -> 3.41 for this fix,
+  # so every earlier perl shipped an affected copy.
+  is($affected->[1]{packageName}, 'perl', 'perl core second');
+  is($affected->[1]{packageURL}, 'pkg:cpan/perl', 'core entry uses the perl distribution purl');
+  is($affected->[1]{versions}[0]{lessThan}, '5.44.0', 'core fix ships in perl 5.44.0');
+
+  is_deeply($affected->[$_]{modules}, ['Storable'], "entry $_ names the shared module") for 0, 1;
+
+  my $published = JSON::PP->new->decode(do {
+    open my $fh, '<', 't/var/CVE-1900-9993.source.json' or die $!;
+    local $/; <$fh>;
+  })->{containers}{cna}{title};
+  is($cna->{title}, $published, 'title matches the published wording');
+};
+
 done_testing();
