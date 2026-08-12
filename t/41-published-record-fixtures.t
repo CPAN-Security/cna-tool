@@ -111,4 +111,35 @@ subtest 'a dual-life module as CPAN distribution plus perl core' => sub {
   is($cna->{title}, $published, 'title matches the published wording');
 };
 
+subtest 'a cpan-first dual-life module keeps per-entry repositories' => sub {
+  my $json = $converter->convert_yaml_file('t/var/CVE-1900-9990.yaml');
+  my $affected = $json->{containers}{cna}{affected};
+
+  is(scalar @$affected, 2, 'distribution and core copy both recorded');
+
+  is($affected->[0]{packageName}, 'HTTP-Tiny', 'CPAN distribution first');
+  is($affected->[0]{versions}[0]{lessThan}, '0.095', 'distribution fix version');
+  is($affected->[0]{repo}, 'https://github.com/Perl-Toolchain-Gang/HTTP-Tiny',
+    'distribution keeps its own repository');
+
+  # perldelta for 5.44.0 records HTTP::Tiny going 0.090 -> 0.096 for this fix.
+  is($affected->[1]{packageName}, 'perl', 'perl core second');
+  is($affected->[1]{versions}[0]{lessThan}, '5.44.0', 'core fix ships in perl 5.44.0');
+  is($affected->[1]{repo}, 'https://github.com/Perl/perl5',
+    'core copy points at perl5, not the distribution repository');
+
+  is_deeply($affected->[0]{programFiles}, ['lib/HTTP/Tiny.pm'], 'distribution path');
+  is_deeply($affected->[1]{programFiles}, ['cpan/HTTP-Tiny/lib/HTTP/Tiny.pm'], 'in-core path');
+
+  my $published = JSON::PP->new->decode(do {
+    open my $fh, '<', 't/var/CVE-1900-9991.source.json' or die $!;
+    local $/; <$fh>;
+  })->{containers}{cna}{title};
+  is($json->{containers}{cna}{title}, $published, 'title matches the published wording');
+
+  my $text = CPANSec::CVE::Announce->new->render_cve5_hash($json);
+  like($text, qr{VCS Repo:\s+\Qhttps://github.com/Perl-Toolchain-Gang/HTTP-Tiny\E}, 'first repo rendered');
+  like($text, qr{VCS Repo:\s+\Qhttps://github.com/Perl/perl5\E}, 'second repo rendered');
+};
+
 done_testing();
