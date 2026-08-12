@@ -490,13 +490,9 @@ sub _resolve_template_token ($dists, $full_token, $token_raw, $field) {
   my $token = $token_raw;
   $token =~ s/^\s+|\s+$//g;
   if ($token eq 'VERSION_RANGE') {
-    # With several distributions the ranges differ, so a bare token cannot say
-    # which one it means. Refuse rather than pick the first or emit the token
-    # verbatim into a published record.
-    if (@$dists > 1) {
-      die "$field uses {{VERSION_RANGE}}, which is ambiguous when the record affects "
-        . scalar(@$dists) . " distributions; write the version ranges out explicitly\n";
-    }
+    # The first entry is the primary distribution: it leads the title and the
+    # announcement. Any further distributions are carried by their own metadata
+    # blocks and by the prose, so the token resolves against the first.
     my $phrase = template_version_range_from_affected($dists->[0]{versions});
     if (!length $phrase) {
       warn "$field contains {{VERSION_RANGE}} but no version range could be derived from cpansec.affected\n";

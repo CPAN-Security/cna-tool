@@ -80,7 +80,6 @@ sub _rule_title_repeated ($cpansec, $path, $dists) {
 
 sub _rule_template_tokens ($cpansec, $path, $dists) {
   my @bad;
-  my $ambiguous = 0;
   my @fields = (
     [title => ($cpansec->{title} // '')],
     [description => ($cpansec->{description} // '')],
@@ -94,11 +93,7 @@ sub _rule_template_tokens ($cpansec, $path, $dists) {
       my $token = $1;
       if ($token eq 'VERSION_RANGE') {
         my $phrase = _version_range_phrase($dists);
-        unless (length $phrase) {
-          push @bad, "$name:{{VERSION_RANGE}}";
-          # Conversion refuses this outright, so CI must not pass it as advisory.
-          $ambiguous = 1 if ref($dists) eq 'ARRAY' && @$dists > 1;
-        }
+        push @bad, "$name:{{VERSION_RANGE}}" unless length $phrase;
       } else {
         push @bad, "$name:{{$token}}";
       }
@@ -112,7 +107,7 @@ sub _rule_template_tokens ($cpansec, $path, $dists) {
 
   return () unless @bad;
   return _f(
-    $ambiguous ? 'error' : 'warning',
+    'warning',
     'template_token_unresolved',
     'Template token issue(s): ' . join(', ', @bad) . '.',
     $path,
@@ -182,10 +177,10 @@ sub _expected_announce_lead ($cpansec, $dists) {
   return "$module $phrase for Perl";
 }
 
-# A record affecting several distributions has no single version phrase, so the
-# wording rules stand down rather than guess which distribution leads.
+# The first entry is the primary distribution, so it supplies the version phrase
+# the title and announcement lead with, however many distributions follow.
 sub _version_range_phrase ($dists) {
-  return '' unless ref($dists) eq 'ARRAY' && @$dists == 1;
+  return '' unless ref($dists) eq 'ARRAY' && @$dists;
   return template_version_range_from_affected($dists->[0]{versions});
 }
 

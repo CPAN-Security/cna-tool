@@ -235,6 +235,11 @@ cpansec:
       versions: ["5.36.0 <= 5.38.2"]
 ```
 
+**Order matters.** The first entry is the *primary* distribution. It leads the announcement,
+and `{{VERSION_RANGE}}` resolves against its versions, so the title describes that
+distribution's range. Further distributions are carried by their own metadata blocks in the
+announcement and by the prose — mention them in the description when the range differs.
+
 Mixing the two spellings, or combining the object form with a record-level `distribution:`,
 is rejected. `CPANSec::CVE::Model::distributions` normalizes whichever spelling was used into
 one list, so `YAML2CVE`, `CVE2YAML`, `Announce` and `Lint` all consume a single shape — add

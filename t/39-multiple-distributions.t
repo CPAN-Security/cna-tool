@@ -167,7 +167,7 @@ Y
   }
 };
 
-subtest 'an ambiguous version-range token is refused, not emitted' => sub {
+subtest 'the version-range token resolves against the primary distribution' => sub {
   my $root = File::Temp::tempdir(CLEANUP => 1);
   File::Path::make_path("$root/cves");
 
@@ -180,18 +180,17 @@ subtest 'an ambiguous version-range token is refused, not emitted' => sub {
   print {$fh} $yaml;
   close $fh;
 
-  for my $cmd (qw(emit build)) {
-    my $out = qx(scripts/cna --cpansec-cna-root '$root' $cmd CVE-1900-9997 2>&1);
-    isnt($? >> 8, 0, "$cmd refuses the record");
-    like($out, qr/ambiguous when the record affects 2 distributions/, "$cmd explains why");
-    unlike($out, qr/^\s*"title"\s*:.*VERSION_RANGE/m, "$cmd does not emit the raw token");
-  }
+  my $out = qx(scripts/cna --cpansec-cna-root '$root' emit CVE-1900-9997 2>&1);
+  is($? >> 8, 0, 'emit succeeds') or diag $out;
 
-  # The record can never be built, so lint must not pass it as merely advisory.
-  my $model = $converter->load_yaml_model("$root/cves/CVE-1900-9997.yaml");
+  # The first entry leads; perl's range is carried by its own metadata block.
+  like($out, qr/Encode versions through 3\.20 for Perl/, 'title uses the first entry range');
+  unlike($out, qr/VERSION_RANGE/, 'no raw token survives into the record');
+
   my ($finding) = grep { $_->{id} eq 'template_token_unresolved' }
-    @{CPANSec::CNA::Lint->new->run_model($model, path => '')};
-  is($finding->{severity}, 'error', 'lint raises it to an error for multi-distribution records');
+    @{CPANSec::CNA::Lint->new->run_model(
+      $converter->load_yaml_model("$root/cves/CVE-1900-9997.yaml"), path => '')};
+  is($finding, undef, 'lint has nothing to report once the token resolves');
 };
 
 subtest 'contradictory spellings are rejected' => sub {
