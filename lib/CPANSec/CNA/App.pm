@@ -1318,6 +1318,11 @@ sub _normalize_cna_for_reconcile ($cna) {
   # provider metadata maintained by CVE Services.
   delete $copy->{providerMetadata};
 
+  # Likewise the generator stamp: it identifies the build that produced the
+  # record, so it changes with every commit to this tool and would otherwise
+  # report a difference for every record that was published by an older build.
+  delete $copy->{x_generator};
+
   return $copy;
 }
 

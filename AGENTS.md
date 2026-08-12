@@ -317,7 +317,11 @@ Current suite:
 ## Data/Output Compatibility Notes
 
 - `announce` command is YAML-only source. JSON fallback was intentionally removed.
-- Reconcile normalizes/ignores remote provider metadata noise (org/dateUpdated/shortName drift).
+- Reconcile normalizes/ignores remote provider metadata noise (org/dateUpdated/shortName drift),
+  and likewise ignores `x_generator`, which names the build that produced a record and so
+  differs whenever the record was published by an older build of this tool.
+- `x_generator.engine` is `cpansec-cna-tool <$VERSION>`, derived from `$CPANSec::CNA::VERSION`.
+  Bump that one constant to change what records report.
 - UTF-8 handling in reconcile diff path was hardened; keep all JSON encode/decode paths UTF-8 safe.
 
 ## Branch and Naming Conventions

@@ -148,7 +148,7 @@ class CPANSec::CVE::YAML2CVE {
       },
       title => $title,
       x_generator => {
-        engine => "cpansec-cna-tool " . CPANSec::CNA->VERSION,
+        engine => CPANSec::CNA::generator(),
       },
     );
 
