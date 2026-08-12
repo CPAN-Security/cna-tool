@@ -469,13 +469,17 @@ sub _affected_entry ($entry, $module) {
   return \%affected;
 }
 
-sub _interpolate_templates ($cpansec, $text, $field) {
+sub _interpolate_templates ($dists, $text, $field) {
   return $text if !defined $text || ref($text);
 
   my $out = $text;
-  $out =~ s/(\{\{\s*([^{}]+?)\s*\}\})/_resolve_template_token($cpansec, $1, $2, $field)/ge;
+  $out =~ s/(\{\{\s*([^{}]+?)\s*\}\})/_resolve_template_token($dists, $1, $2, $field)/ge;
 
-  if ($out =~ /\{\{|\}\}/) {
+  # Only complain about delimiters that are not part of a well-formed token, so
+  # a token we deliberately left unresolved is not reported as malformed too.
+  my $rest = $out;
+  $rest =~ s/\{\{\s*[^{}]+?\s*\}\}//g;
+  if ($rest =~ /\{\{|\}\}/) {
     warn "$field contains unmatched template delimiters\n";
   }
 
@@ -487,10 +491,11 @@ sub _resolve_template_token ($dists, $full_token, $token_raw, $field) {
   $token =~ s/^\s+|\s+$//g;
   if ($token eq 'VERSION_RANGE') {
     # With several distributions the ranges differ, so a bare token cannot say
-    # which one it means. Leave it unexpanded rather than pick the first.
+    # which one it means. Refuse rather than pick the first or emit the token
+    # verbatim into a published record.
     if (@$dists > 1) {
-      warn "$field contains {{VERSION_RANGE}} but the record affects multiple distributions\n";
-      return $full_token;
+      die "$field uses {{VERSION_RANGE}}, which is ambiguous when the record affects "
+        . scalar(@$dists) . " distributions; write the version ranges out explicitly\n";
     }
     my $phrase = template_version_range_from_affected($dists->[0]{versions});
     if (!length $phrase) {

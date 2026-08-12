@@ -80,6 +80,7 @@ sub _rule_title_repeated ($cpansec, $path, $dists) {
 
 sub _rule_template_tokens ($cpansec, $path, $dists) {
   my @bad;
+  my $ambiguous = 0;
   my @fields = (
     [title => ($cpansec->{title} // '')],
     [description => ($cpansec->{description} // '')],
@@ -93,7 +94,11 @@ sub _rule_template_tokens ($cpansec, $path, $dists) {
       my $token = $1;
       if ($token eq 'VERSION_RANGE') {
         my $phrase = _version_range_phrase($dists);
-        push @bad, "$name:{{VERSION_RANGE}}" unless length $phrase;
+        unless (length $phrase) {
+          push @bad, "$name:{{VERSION_RANGE}}";
+          # Conversion refuses this outright, so CI must not pass it as advisory.
+          $ambiguous = 1 if ref($dists) eq 'ARRAY' && @$dists > 1;
+        }
       } else {
         push @bad, "$name:{{$token}}";
       }
@@ -107,7 +112,7 @@ sub _rule_template_tokens ($cpansec, $path, $dists) {
 
   return () unless @bad;
   return _f(
-    'warning',
+    $ambiguous ? 'error' : 'warning',
     'template_token_unresolved',
     'Template token issue(s): ' . join(', ', @bad) . '.',
     $path,
