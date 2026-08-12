@@ -48,6 +48,16 @@ class CPANSec::CVE::CVE2YAML {
     my @affected = @{$cna->{affected} // []};
     my $aff = $affected[0] // {};
 
+    # The macro carries a single shared module, so an entry naming several is not
+    # representable. Reject here rather than in the guard alone: --no-guard would
+    # otherwise drop the extras silently.
+    for my $i (0 .. $#affected) {
+      my $modules = _modules_of($affected[$i]);
+      next if @$modules <= 1;
+      die "containers.cna.affected[$i] lists " . scalar(@$modules) . " modules ("
+        . join(', ', @$modules) . "); the cpansec macro carries a single shared module\n";
+    }
+
     my %cp = (
       cve => $doc->{cveMetadata}{cveId},
       module => _normalize_import_text(_module_of($aff) // ''),
@@ -216,10 +226,11 @@ sub _project_roundtrip_view ($doc) {
     # Every entry is projected, so a dropped distribution cannot slip past.
     distributions => [ map { +{
       distribution => $_->{packageName},
-      # Effective module per entry, so a record whose entries name different
-      # modules fails the guard instead of collapsing to the first one. Reading
-      # it through _module_of keeps legacy product-only records comparable.
-      module => _module_of($_),
+      # The whole module list per entry, so neither a disagreement between
+      # entries nor extra modules within one entry can collapse unnoticed.
+      # Reading it through _modules_of keeps legacy product-only records
+      # comparable against records that use modules[].
+      modules => _modules_of($_),
       repo => $_->{repo},
       versions => [ map { _normalize_version_entry($_) } @{$_->{versions} // []} ],
       files => [ sort @{$_->{programFiles} // []} ],
@@ -267,10 +278,14 @@ sub _distribution_entry ($aff) {
 }
 
 # The module lives in modules[] since 5.2.0; product carried it in older records.
-sub _module_of ($aff) {
+sub _modules_of ($aff) {
   my $modules = $aff->{modules};
-  return $modules->[0] if ref($modules) eq 'ARRAY' && @$modules;
-  return $aff->{product};
+  return [ @$modules ] if ref($modules) eq 'ARRAY' && @$modules;
+  return defined $aff->{product} ? [ $aff->{product} ] : [];
+}
+
+sub _module_of ($aff) {
+  return _modules_of($aff)->[0];
 }
 
 sub _normalize_version_entry ($v) {

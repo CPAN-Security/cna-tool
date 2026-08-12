@@ -82,6 +82,25 @@ subtest 'a dual-life record survives import with the guard on' => sub {
   unlike($yaml, qr/^  distribution:/m, 'no flat distribution key alongside the object form');
 };
 
+subtest 'extra modules within one entry cannot be silently lost' => sub {
+  # CVE 5.2 lets an entry list several modules; the macro carries one. Dropping
+  # the extras must be refused, including with the guard disabled.
+  my $doc = $converter->convert_yaml_file('t/var/CVE-1900-9997.yaml');
+  $doc->{containers}{cna}{affected}[0]{modules} = ['Encode', 'Encode::Alias'];
+
+  my ($fh, $json_path) = File::Temp::tempfile(SUFFIX => '.json', UNLINK => 1);
+  print {$fh} JSON::PP->new->utf8->canonical->encode($doc);
+  close($fh);
+
+  for my $guard (1, 0) {
+    my $ok = eval {
+      CPANSec::CVE::CVE2YAML->new->convert_json_file_to_yaml($json_path, guard => $guard); 1
+    };
+    ok(!$ok, "rejected with guard=$guard");
+    like($@, qr/affected\[0\] lists 2 modules/, "guard=$guard names the entry and count");
+  }
+};
+
 subtest 'divergent per-entry modules cannot be silently lost' => sub {
   # The macro carries one shared module, so a record whose entries name
   # different modules is not representable. The guard must say so rather than
@@ -95,7 +114,7 @@ subtest 'divergent per-entry modules cannot be silently lost' => sub {
 
   my $ok = eval { CPANSec::CVE::CVE2YAML->new->convert_json_file_to_yaml($json_path, guard => 1); 1 };
   ok(!$ok, 'guard rejects a record it cannot represent');
-  like($@, qr/distributions\[1\]\.module differs/, 'diff points at the offending entry');
+  like($@, qr/distributions\[1\]\.modules\[0\] differs/, 'diff points at the offending entry');
 };
 
 subtest 'the CLI handles an object-form record' => sub {
