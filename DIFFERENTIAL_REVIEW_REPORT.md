@@ -4,26 +4,26 @@
 |---|---:|
 | Critical | 0 |
 | High | 0 |
-| Medium | 1 |
+| Medium | 0 |
 | Low | 0 |
 
-**Overall risk:** MEDIUM  
-**Recommendation:** CONDITIONAL — fix the import guard's handling of multi-valued `modules[]` before merging.
+**Overall risk:** LOW
+**Recommendation:** APPROVE
 
 **Key metrics:**
 
-- Files analyzed: 17/17 changed files
-- Tests: 307 passed across 40 files
-- Test coverage gaps: 1 guard case
+- Files analyzed: 18/18 changed files
+- Tests: 308 passed across 40 files
+- Test coverage gaps: 0 identified
 - Security regressions detected: 0
 
 ## What Changed
 
-**Commit range:** `main...2ec947a`  
-**Commits:** 20  
+**Commit range:** `main...bf50b90`
+**Commits:** 21
 **Timeline:** 2026-08-09 to 2026-08-12
 
-The branch upgrades emitted records to CVE 5.2.0, changes CPAN package identification to `collectionURL`/`packageName`/`packageURL` plus `modules[]`, adds a normalized multi-distribution model, updates import and announcement behavior, and adds corresponding tests and documentation. It changes 17 files with 1,226 insertions and 110 deletions.
+The branch upgrades emitted records to CVE 5.2.0, changes CPAN package identification to `collectionURL`/`packageName`/`packageURL` plus `modules[]`, adds a normalized multi-distribution model, updates import and announcement behavior, and adds corresponding tests and documentation.
 
 | Area | Risk | Blast radius |
 |---|---|---|
@@ -35,14 +35,15 @@ The branch upgrades emitted records to CVE 5.2.0, changes CPAN package identific
 
 ## Findings
 
-### MEDIUM: Import guard silently drops additional values in an affected entry's `modules[]`
+### RESOLVED: Import guard silently dropped additional values in an affected entry's `modules[]`
 
-**File:** `lib/CPANSec/CVE/CVE2YAML.pm:222` and `lib/CPANSec/CVE/CVE2YAML.pm:270`  
-**Introduced by:** `6afff11` (`Guard the module per affected entry`)  
-**Blast radius:** all JSON imports using the default round-trip guard; direct callers are the import command and import tests  
-**Test coverage:** partial
+**File:** `lib/CPANSec/CVE/CVE2YAML.pm:233` and `lib/CPANSec/CVE/CVE2YAML.pm:281`
+**Introduced by:** `6afff11` (`Guard the module per affected entry`)
+**Fixed by:** `bf50b90` (`Reject an affected entry that lists several modules`)
+**Blast radius:** all JSON imports; direct callers are the import command and import tests
+**Test coverage:** complete for the reported case
 
-The CPAN macro can represent one shared module, while CVE 5.2 permits an affected entry's `modules` array to contain more than one module. `_module_of` returns only `modules->[0]`, and both conversion and `_project_roundtrip_view` use that scalar. Consequently, an input such as `modules: ["Encode", "Encode::Alias"]` is imported as `module: Encode`; rebuilding emits only `["Encode"]`; and the guard nevertheless accepts the result because both projections compare only the first element.
+Before `bf50b90`, the CPAN macro could represent one shared module while CVE 5.2 permitted an affected entry's `modules` array to contain more than one module. `_module_of` returned only `modules->[0]`, and both conversion and `_project_roundtrip_view` used that scalar. Consequently, an input such as `modules: ["Encode", "Encode::Alias"]` was imported as `module: Encode`; rebuilding emitted only `["Encode"]`; and the guard nevertheless accepted the result.
 
 This contradicts the guard's purpose and the nearby fix for divergent modules between affected entries. The same non-representability exists within one entry but is not checked.
 
@@ -50,19 +51,19 @@ This contradicts the guard's purpose and the nearby fix for divergent modules be
 
 **Impact:** A valid imported CVE record can lose an affected module identifier without warning. If the generated YAML is subsequently treated as source of truth, later emitted and published data under-reports the affected module set.
 
-**Recommendation:** Project the full normalized module array for every affected entry and make the guard compare it. Conversion should explicitly reject any entry with more than one effective module unless the macro is extended to represent all of them. Add a regression test beside `divergent per-entry modules cannot be silently lost` using two modules in a single affected entry.
+**Resolution verified:** Conversion now rejects multi-valued module arrays before guard evaluation, including when `guard => 0`. The projection also compares every module value per affected entry. A regression test covers both guarded and unguarded paths.
 
 ## Test Coverage Analysis
 
 The required offline suite passed:
 
 ```text
-Files=40, Tests=307
+Files=40, Tests=308
 All tests successful.
 Result: PASS
 ```
 
-Existing tests cover multiple distributions and disagreement between the first module of different affected entries. They do not cover multiple module values within one affected entry, which is the finding above.
+Tests cover multiple distributions, disagreement between affected entries, and multiple module values within one entry under both guard modes.
 
 ## Blast Radius Analysis
 
@@ -76,8 +77,7 @@ The original guard projected only one affected entry. Commit `9deb5ec` expanded 
 
 ### Immediate
 
-- Make multi-valued `modules[]` non-lossy or explicitly non-representable in the guard.
-- Add the focused regression test described above.
+- No blocking actions remain from this review.
 
 ### Follow-up
 
@@ -89,5 +89,5 @@ The original guard projected only one affected entry. Commit `9deb5ec` expanded 
 
 Reviewed all changed production code, schema changes, tests, commit history, and relevant one-hop call sites. Compared baseline and branch implementations, inspected the history of the guard logic, ran `git diff --check`, ran the complete mandated offline test suite, and executed a focused adversarial round-trip reproduction.
 
-**Limitations:** External CVE and purl specifications were not re-fetched; schema conformance was exercised through the repository's pinned schema and tests.  
-**Confidence:** high for the identified import data-loss bug; medium-high overall.
+**Limitations:** External CVE and purl specifications were not re-fetched; schema conformance was exercised through the repository's pinned schema and tests.
+**Confidence:** high for the verified fix; medium-high overall.
