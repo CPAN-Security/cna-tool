@@ -99,6 +99,12 @@ The tooling is being prepared to move to a separate project. This guide is the h
   - Interactive MetaCPAN metadata fetch prompt.
 - Output:
   - Creates `cves/CVE-YYYY-NNNN.yaml` stub with schema header.
+  - On a work branch, stages `git rm` of the matching `reserved/CVE-YYYY-NNNN` file. Issuing
+    the CVE is what retires the reservation, so it is not left as a separate step to remember.
+    The removal is staged, not committed.
+  - On `main` the reserved file is left untouched and init says so. There the file is the
+    record that the ID is held, so staging its deletion risks losing the reservation without
+    the CVE ever being issued; retiring it belongs to the PR that issues the CVE.
 
 ### 3. Edit + Validate
 - Run: `cpansec-cna check CVE-YYYY-NNNN`

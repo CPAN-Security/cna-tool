@@ -224,7 +224,30 @@ UNVERIFIED
     close($fh);
 
     print "Initialized $yaml_file\n";
+    $self->_retire_reserved($cve, $reserved);
     return 0;
+  }
+
+  # Issuing the CVE is what retires its reservation, so the removal is staged
+  # here rather than left as a step to remember. It belongs to the PR that
+  # issues the CVE: on main the reservation is the record that the ID is held,
+  # so it is left alone there rather than staged for deletion.
+  method _retire_reserved ($cve, $reserved) {
+    return unless -f $reserved;
+
+    if ($self->_git_current_branch eq 'main') {
+      print "Left $reserved in place: reservations are retired in the PR that issues the CVE.\n";
+      return;
+    }
+
+    my ($rc) = $self->_run_cmd_capture_with_rc('git', 'rm', '--quiet', '--', $reserved);
+    if (!defined $rc || $rc != 0) {
+      print "WARNING: could not 'git rm $reserved'; remove the reservation by hand.\n";
+      return;
+    }
+
+    print "Staged removal of $reserved\n";
+    return;
   }
 
   method _cmd_check (@args) {
