@@ -44,17 +44,13 @@ class CPANSec::CVE::Announce {
       _wrap_description(_descriptions_text($cna)),
       "",
       ($cna->{problemTypes} ? _section(
-        "Problem types", map { Text::Wrap::wrap('- ', '  ', $_->{descriptions}->[0]->{description}) } $cna->{problemTypes}->@*
+        "Problem types", map { Text::Wrap::wrap('- ', '  ', _first_description($_)) } $cna->{problemTypes}->@*
       ) : ()),
       ($cna->{impacts} ? _section(
-        "Impacts", map { Text::Wrap::wrap('- ', '  ', $_->{descriptions}->[0]->{description}) } $cna->{impacts}->@*
+        "Impacts", map { Text::Wrap::wrap('- ', '  ', _first_description($_)) } $cna->{impacts}->@*
       ) : ()),
-      ($cna->{workarounds} ? _section(
-        "Workarounds", map { Text::Wrap::wrap('', '', $_->{value}) . ("\n") x !!$cna->{workarounds}->@* } $cna->{workarounds}->@*
-      ) : ()),
-      ($cna->{solutions} ? _section(
-        "Solutions", map { Text::Wrap::wrap('', '', $_->{value}) . ("\n") x !!$cna->{solutions}->@* } $cna->{solutions}->@*
-      ) : ()),
+      ($cna->{workarounds} ? _section("Workarounds", _paragraphs($cna->{workarounds})) : ()),
+      ($cna->{solutions} ? _section("Solutions", _paragraphs($cna->{solutions})) : ()),
       ($cna->{references} ? _section(
         "References", map { "$_->{url}" } $cna->{references}->@*
       ) : ()),
@@ -101,6 +97,14 @@ sub _distribution_lines ($aff) {
   );
 }
 
+# problemTypes descriptions carry the text in 'description'; impacts use the
+# standard CVE description object, which spells it 'value'. Reading only the
+# former left every Impacts section empty, and an empty section is dropped.
+sub _first_description ($entry) {
+  my $description = $entry->{descriptions}->[0] // {};
+  return $description->{value} // $description->{description} // '';
+}
+
 sub _dt ($k, $v) {
   $v //= '';
   return sprintf("%15s  %s", ($k ? "$k:" : ""), $v);
@@ -108,6 +112,20 @@ sub _dt ($k, $v) {
 
 sub _section ($t, @items) {
   return @items && $items[0] ? (_header($t), @items, "") : ();
+}
+
+# Free-prose values, blank-line separated. The separator goes *between* values:
+# _section already closes every section with one blank line, so a trailing
+# separator here doubled the gap before whichever section came next.
+sub _paragraphs ($entries) {
+  my @out;
+  for my $entry (@$entries) {
+    push @out, "" if @out;
+    my $text = Text::Wrap::wrap('', '', $entry->{value});
+    $text =~ s/\n+\z//;
+    push @out, $text;
+  }
+  return @out;
 }
 
 sub _descriptions_text ($j) {
