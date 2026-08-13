@@ -99,6 +99,12 @@ The tooling is being prepared to move to a separate project. This guide is the h
   - Interactive MetaCPAN metadata fetch prompt.
 - Output:
   - Creates `cves/CVE-YYYY-NNNN.yaml` stub with schema header.
+  - On a work branch, stages `git rm` of the matching `reserved/CVE-YYYY-NNNN` file. Issuing
+    the CVE is what retires the reservation, so it is not left as a separate step to remember.
+    The removal is staged, not committed.
+  - On `main` the reserved file is left untouched and init says so. There the file is the
+    record that the ID is held, so staging its deletion risks losing the reservation without
+    the CVE ever being issued; retiring it belongs to the PR that issues the CVE.
 
 ### 3. Edit + Validate
 - Run: `cpansec-cna check CVE-YYYY-NNNN`
@@ -112,7 +118,8 @@ The tooling is being prepared to move to a separate project. This guide is the h
 ### 4. Build or Emit JSON
 - Build/writes file:
   - `cpansec-cna build CVE-YYYY-NNNN`
-  - Writes `cves/CVE-YYYY-NNNN.json`.
+  - Writes `cves/CVE-YYYY-NNNN.json`, overwriting without prompting: writing that file is what
+    the command does, and its content is regenerated from the YAML.
 - Emit/stdout only:
   - `cpansec-cna emit CVE-YYYY-NNNN`
   - `cpansec-cna emit CVE-YYYY-NNNN --cna-container-only`
@@ -214,6 +221,51 @@ YAML validation:
 - YAML files include language-server hint comment for editor tooling.
 - Only `.yaml` source files are supported (`.yml` is intentionally ignored).
 
+### Affected distributions
+
+`cpansec.affected` accepts two spellings, told apart by element type:
+
+- An array of **version-range strings**, for the single distribution named by the
+  record-level `distribution:` key. This is the common case and is unchanged.
+- An array of **objects**, each with its own `distribution:` and `versions:`, when one
+  vulnerability affects several distributions. A dual-life module is the motivating case,
+  where the same flaw affects both perl core and the standalone CPAN distribution across
+  different version ranges.
+
+```yaml
+cpansec:
+  module: Encode          # record level, shared by every entry
+  affected:
+    - distribution: Encode
+      versions: ["<= 3.20"]
+    - distribution: perl
+      versions: ["5.36.0 <= 5.38.2"]
+```
+
+**Order matters.** The first entry is the *primary* distribution. It leads the announcement,
+and `{{VERSION_RANGE}}` resolves against its versions, so the title describes that
+distribution's range. Further distributions are carried by their own metadata blocks in the
+announcement and by the prose — mention them in the description when the range differs.
+
+Mixing the two spellings, or combining the object form with a record-level `distribution:`,
+is rejected. `CPANSec::CVE::Model::distributions` normalizes whichever spelling was used into
+one list, so `YAML2CVE`, `CVE2YAML`, `Announce` and `Lint` all consume a single shape — add
+new consumers there rather than reading `cpansec.affected` directly.
+
+Announcements render one labelled block per distribution, so each version range stays bound
+to the distribution it belongs to.
+
+### Emitted identifiers
+
+- CPAN packages are identified by `collectionURL` + `packageName` + `packageURL`, plus the
+  module in `modules[]`. `vendor` and `product` are deliberately **not** emitted: they are
+  commercial-software vocabulary, and the schema's `anyOf` is satisfied without them.
+- `packageURL` is the bare distribution form, `pkg:cpan/<distribution>` — no namespace, no
+  `author` qualifier, and never a version, which CVE 5.2.0 forbids.
+- Because nothing emits the PAUSE ID any more, `cpansec.author` is **optional** and serves as
+  local provenance only. It reaches no consumer and does not round-trip through import.
+- Records are emitted as `dataVersion` `5.2.0`.
+
 JSON validation:
 - Prefer upstream schema refs from `cve-schema/schema/`.
 - Fallback file: `cve-record-format-5.2.0.json`.
@@ -259,12 +311,17 @@ Fixtures:
 - If CLI requires canonical locations (like `cves/<CVE>.yaml`), copy fixture from `t/var` into temporary/staged file and clean up.
 
 Current suite:
-- `prove -lr t` should pass without network.
+- `nix develop --offline -c prove -lr t` should pass without network. The cpanfile deps come
+  from `flake.nix`, so a bare `prove -lr t` fails every file on a missing `JSON::Validator`.
 
 ## Data/Output Compatibility Notes
 
 - `announce` command is YAML-only source. JSON fallback was intentionally removed.
-- Reconcile normalizes/ignores remote provider metadata noise (org/dateUpdated/shortName drift).
+- Reconcile normalizes/ignores remote provider metadata noise (org/dateUpdated/shortName drift),
+  and likewise ignores `x_generator`, which names the build that produced a record and so
+  differs whenever the record was published by an older build of this tool.
+- `x_generator.engine` is `cpansec-cna-tool <$VERSION>`, derived from `$CPANSec::CNA::VERSION`.
+  Bump that one constant to change what records report.
 - UTF-8 handling in reconcile diff path was hardened; keep all JSON encode/decode paths UTF-8 safe.
 
 ## Branch and Naming Conventions
@@ -293,9 +350,7 @@ Publication transition for sensitive CVEs:
 ## Script Inventory
 
 - `scripts/cpansec-cna`: primary workflow CLI (`init`, `check`, `build`, `emit`, `announce`, `import`, `reconcile`)
-- `scripts/yaml2cve`: low-level YAML->CVE conversion and schema validation helper
-- `scripts/cve2announce`: announcement rendering helper
-- `scripts/canonicalize-json`: canonical JSON formatting for deterministic diffs
+- `scripts/cna`: short alias for the same CLI
 
 ## Migration Plan: Split Tooling from Data Repo
 
@@ -319,7 +374,7 @@ Recommended follow-ups after split:
 
 Before making behavior changes:
 - Confirm command semantics in `CPANSec::CNA::App`.
-- Run full tests: `prove -lr t`.
+- Run full tests: `nix develop --offline -c prove -lr t`.
 - Ensure no new network path is reachable from tests.
 - Verify fixture discipline (`t/var` only as source fixtures).
 
@@ -337,9 +392,9 @@ When changing schema/lint:
 
 - `cpansec-cna init [--force] [--encrypted] <CVE> <Module>`
 - `cpansec-cna check [CVE] [--changed] [--format text|github] [--strict]`
-- `cpansec-cna build [CVE] [--strict] [--force]`
+- `cpansec-cna build [CVE] [--strict]`
 - `cpansec-cna emit [CVE] [--strict] [--cna-container-only]`
-- `cpansec-cna announce [CVE] [--write|--output PATH] [--force]`
+- `cpansec-cna announce [CVE] [--write|--output PATH]`
 - `cpansec-cna import <CVE|PATH.json> [--force] [--no-guard]`
 - `cpansec-cna reconcile [CVE] [--api-base URL] [--verbose]`
 - Global:

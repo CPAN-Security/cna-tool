@@ -76,11 +76,11 @@ Commands:
   check [CVE-ID] [--changed] [--format text|github] [--strict]
                                     Validate YAML + lint findings (and JSON drift if present)
                                     Use --pr-policy --base-sha <sha> to enforce announce PR rules
-  build [CVE-ID] [--strict] [--force]
+  build [CVE-ID] [--strict]
                                     Validate/lint and write <CVE-ID>.json next to source YAML
   emit [CVE-ID] [--strict] [--cna-container-only]
                                     Validate/lint and print generated JSON to stdout
-  announce [CVE-ID] [--write|--output path] [--force]
+  announce [CVE-ID] [--write|--output path]
                                     Render announcement text to stdout or file
   edit [CVE-ID]
                                     Open CVE YAML in $VISUAL/$EDITOR (or vi)
@@ -187,11 +187,20 @@ USAGE
     if ($self->_confirm("Fetch metadata from MetaCPAN for '$module'?", 1)) {
       %prefill = $self->_prefill_from_metacpan($module);
     }
-    my $distribution = $prefill{distribution} // do {
-      my $d = $module;
-      $d =~ s/::/-/g;
-      $d;
-    };
+    # The distribution becomes the Package URL, so an unchecked guess publishes
+    # an identifier that resolves to nothing.
+    my $distribution = $prefill{distribution};
+    if (defined $distribution && length $distribution) {
+      print "Distribution '$distribution' confirmed via MetaCPAN.\n";
+    } else {
+      $distribution = $module =~ s/::/-/gr;
+      print <<"UNVERIFIED";
+WARNING: distribution '$distribution' was derived from the module name and is
+         NOT confirmed against MetaCPAN, so pkg:cpan/$distribution may not
+         resolve (LWP::UserAgent, for instance, ships in libwww-perl).
+         Check it before publishing.
+UNVERIFIED
+    }
     my $author = $prefill{author} // 'TODO';
     my $repo = $prefill{repo};
 
@@ -215,7 +224,30 @@ USAGE
     close($fh);
 
     print "Initialized $yaml_file\n";
+    $self->_retire_reserved($cve, $reserved);
     return 0;
+  }
+
+  # Issuing the CVE is what retires its reservation, so the removal is staged
+  # here rather than left as a step to remember. It belongs to the PR that
+  # issues the CVE: on main the reservation is the record that the ID is held,
+  # so it is left alone there rather than staged for deletion.
+  method _retire_reserved ($cve, $reserved) {
+    return unless -f $reserved;
+
+    if ($self->_git_current_branch eq 'main') {
+      print "Left $reserved in place: reservations are retired in the PR that issues the CVE.\n";
+      return;
+    }
+
+    my ($rc) = $self->_run_cmd_capture_with_rc('git', 'rm', '--quiet', '--', $reserved);
+    if (!defined $rc || $rc != 0) {
+      print "WARNING: could not 'git rm $reserved'; remove the reservation by hand.\n";
+      return;
+    }
+
+    print "Staged removal of $reserved\n";
+    return;
   }
 
   method _cmd_check (@args) {
@@ -294,7 +326,7 @@ USAGE
       push @positionals, $a;
     }
 
-    die "Usage: cna build [CVE-ID] [--strict] [--force]\n" unless @positionals <= 1;
+    die "Usage: cna build [CVE-ID] [--strict]\n" unless @positionals <= 1;
     my $cve = $positionals[0] // $self->_default_cve_from_context
       // die "No CVE provided and no default found (set CPANSEC_CNA_CVE or use a CVE-prefixed branch name).\n";
     my $yaml = $self->_find_yaml_for_cve($cve);
@@ -312,10 +344,9 @@ USAGE
     my $cve_obj = CPANSec::CVE->from_yaml_file($yaml);
     my $json = $cve_obj->to_cve5_json;
 
+    # No overwrite prompt: writing this file is what the command does, the
+    # content is regenerated from the YAML, and it is tracked in git.
     (my $json_file = $yaml) =~ s/\.yaml$/.json/i;
-    if (-f $json_file && !$opt{force}) {
-      die "Aborted.\n" unless $self->_confirm("$json_file exists. Overwrite?", 0);
-    }
     $self->_assert_encrypted_write_safe($json_file);
 
     open(my $fh, '>', $json_file) or die "Cannot write $json_file: $!\n";
@@ -371,7 +402,7 @@ USAGE
       push @positionals, $a;
     }
 
-    die "Usage: cna announce [CVE-ID] [--write|--output path] [--force]\n"
+    die "Usage: cna announce [CVE-ID] [--write|--output path]\n"
       unless @positionals <= 1;
     die "--write and --output cannot be combined\n" if $opt{write} && defined $opt{output};
 
@@ -386,10 +417,9 @@ USAGE
     if (defined $opt{output} || $opt{write}) {
       my $default_dir = 'announce';
       my $default_file = "$cve.txt";
+      # No overwrite prompt: --write/--output asked for the file to be written,
+      # and the text is regenerated from the YAML.
       my $out = defined($opt{output}) ? $opt{output} : File::Spec->catfile($default_dir, $default_file);
-      if (-f $out && !$opt{force}) {
-        die "Aborted.\n" unless $self->_confirm("$out exists. Overwrite?", 0);
-      }
       $self->_assert_encrypted_write_safe($out);
       my $dir = dirname($out);
       make_path($dir) unless -d $dir;
@@ -1287,6 +1317,11 @@ sub _normalize_cna_for_reconcile ($cna) {
   # Reconciliation should focus on published vulnerability content, not
   # provider metadata maintained by CVE Services.
   delete $copy->{providerMetadata};
+
+  # Likewise the generator stamp: it identifies the build that produced the
+  # record, so it changes with every commit to this tool and would otherwise
+  # report a difference for every record that was published by an older build.
+  delete $copy->{x_generator};
 
   return $copy;
 }

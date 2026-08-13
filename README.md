@@ -64,6 +64,15 @@ For a local checkout, install dependencies from `cpanfile` with `cpm`:
 cpm install --with-test --show-build-log-on-failure
 ```
 
+`cpm` installs into `./local`, which is not on `@INC` by default, so put it there
+when running anything from the checkout:
+
+```bash
+export PERL5LIB="$PWD/local/lib/perl5"
+```
+
+To update dependencies later, re-run the same `cpm install`.
+
 Initialize the `cve-schema` submodule (needed for local `scripts/cna` schema validation):
 
 ```bash
@@ -73,7 +82,13 @@ git submodule update --init --recursive cve-schema
 Then run tests:
 
 ```bash
-prove -lr t
+PERL5LIB="$PWD/local/lib/perl5" prove -lr t
+```
+
+Or, if you use Nix instead of `cpm`, the dev shell already provides them:
+
+```bash
+nix develop --offline -c prove -lr t
 ```
 
 ## Command
@@ -121,8 +136,11 @@ scripts/cna init --encrypted CVE-2026-12345 Some::Module
 - suggests branch `CVE-YYYY-NNNN--module-slug`
 - branch switch prompt is only offered on clean `main`
 - on dirty `main`, it asks whether to continue without switching
-- can prefill metadata from MetaCPAN (interactive)
+- can prefill metadata from MetaCPAN (interactive), and says whether the
+  distribution name was confirmed there, since it becomes the Package URL
 - always writes `repo:` in stub (MetaCPAN value or placeholder)
+- on a work branch, stages `git rm` of `reserved/<CVE>`; on `main` it leaves the
+  reservation alone, since retiring it belongs to the PR that issues the CVE
 
 ### 3. Edit + Validate
 
@@ -147,7 +165,7 @@ scripts/cna check CVE-2026-12345 --strict
 
 ### 4. Generate JSON
 
-Write JSON next to YAML:
+Write JSON next to YAML (overwrites without prompting):
 
 ```bash
 scripts/cna build CVE-2026-12345
@@ -232,6 +250,31 @@ Optional sections are shown as comments (not pre-populated), including:
 - `timeline`
 - `credits`
 
+### Multiple Affected Distributions
+
+`affected` takes either a list of version ranges for the single distribution named
+by `distribution:`, or a list of objects when one flaw affects several
+distributions — a dual-life module living both in perl core and on CPAN, or a
+handler shipped both standalone and bundled elsewhere:
+
+```yaml
+cpansec:
+  module: Storable          # record level, shared by every entry
+  affected:
+    - distribution: Storable
+      versions: ["< 3.41"]
+    - distribution: perl
+      versions: ["< 5.44.0"]
+```
+
+Each entry may carry its own `repo`, `files` and `routines`. The first entry is the
+primary distribution: it leads the announcement and supplies `{{VERSION_RANGE}}`,
+so entry order matters. Mixing the two spellings, or combining the object form with
+a top-level `distribution:`, is rejected.
+
+The announcement renders one block per distribution, so each version range stays
+tied to the distribution it belongs to.
+
 ### `{{VERSION_RANGE}}` Template Token
 
 `title` and `description` can include `{{VERSION_RANGE}}`.
@@ -263,6 +306,9 @@ affected:
 becomes:
 
 `versions through 1.0, from 1.2 through 1.3, from 1.5`
+
+When a record affects several distributions, `{{VERSION_RANGE}}` resolves against
+the first one.
 
 If template syntax is malformed or an unsupported token is used, conversion warns.
 Unsupported tokens are left unchanged in output text.
@@ -306,9 +352,9 @@ For commands that accept optional CVE (`check/build/emit/announce/reconcile` sin
 ```bash
 scripts/cna init [--force] [--encrypted] <CVE> <Module>
 scripts/cna check [CVE] [--changed] [--format text|github] [--strict]
-scripts/cna build [CVE] [--strict] [--force]
+scripts/cna build [CVE] [--strict]
 scripts/cna emit [CVE] [--strict] [--cna-container-only]
-scripts/cna announce [CVE] [--write|--output PATH] [--force]
+scripts/cna announce [CVE] [--write|--output PATH]
 scripts/cna import <CVE|PATH.json> [--force] [--no-guard]
 scripts/cna reconcile [CVE] [--api-base URL] [--verbose]
 ```

@@ -25,8 +25,8 @@ class CPANSec::CVE::Announce {
 
     local $Text::Wrap::columns = $wrap_columns;
 
-    my $aff0 = $cna->{affected}->[0] // {};
-    my $printed_version_header;
+    my @affected = @{$cna->{affected} // []};
+    @affected = ({}) unless @affected;
 
     my @lines = (
       "Subject: $cve->{cveMetadata}->{cveId}: $cna->{title}",
@@ -35,11 +35,7 @@ class CPANSec::CVE::Announce {
       _header([$cve->{cveMetadata}->{cveId}, "CPAN Security Group"], "="),
       "",
       _dt("CVE ID", $cve->{cveMetadata}->{cveId}),
-      _dt("Distribution", $aff0->{packageName}),
-      (map { _dt($printed_version_header++ ? "" : "Versions", $_) } phrases_from_cve_versions($aff0->{versions})),
-      "",
-      _dt("MetaCPAN", "https://metacpan.org/dist/" . ($aff0->{packageName} // '')),
-      ($aff0->{repo} ? _dt("VCS Repo", $aff0->{repo}) : ()),
+      _distribution_blocks(@affected),
       "",
       "",
       Text::Wrap::wrap('', '', $cna->{title}),
@@ -48,17 +44,13 @@ class CPANSec::CVE::Announce {
       _wrap_description(_descriptions_text($cna)),
       "",
       ($cna->{problemTypes} ? _section(
-        "Problem types", map { Text::Wrap::wrap('- ', '  ', $_->{descriptions}->[0]->{description}) } $cna->{problemTypes}->@*
+        "Problem types", map { Text::Wrap::wrap('- ', '  ', _first_description($_)) } $cna->{problemTypes}->@*
       ) : ()),
       ($cna->{impacts} ? _section(
-        "Impacts", map { Text::Wrap::wrap('- ', '  ', $_->{descriptions}->[0]->{description}) } $cna->{impacts}->@*
+        "Impacts", map { Text::Wrap::wrap('- ', '  ', _first_description($_)) } $cna->{impacts}->@*
       ) : ()),
-      ($cna->{workarounds} ? _section(
-        "Workarounds", map { Text::Wrap::wrap('', '', $_->{value}) . ("\n") x !!$cna->{workarounds}->@* } $cna->{workarounds}->@*
-      ) : ()),
-      ($cna->{solutions} ? _section(
-        "Solutions", map { Text::Wrap::wrap('', '', $_->{value}) . ("\n") x !!$cna->{solutions}->@* } $cna->{solutions}->@*
-      ) : ()),
+      ($cna->{workarounds} ? _section("Workarounds", _paragraphs($cna->{workarounds})) : ()),
+      ($cna->{solutions} ? _section("Solutions", _paragraphs($cna->{solutions})) : ()),
       ($cna->{references} ? _section(
         "References", map { "$_->{url}" } $cna->{references}->@*
       ) : ()),
@@ -82,6 +74,37 @@ sub _header ($t, $l = "-") {
     : ($t, ($l x length($t)));
 }
 
+# One labelled block per affected distribution, blank-line separated. A record
+# with a single distribution renders exactly as it always has; a dual-life
+# record repeats the block so each version range stays tied to its distribution.
+sub _distribution_blocks (@affected) {
+  my @out;
+  for my $aff (@affected) {
+    push @out, "" if @out;
+    push @out, _distribution_lines($aff);
+  }
+  return @out;
+}
+
+sub _distribution_lines ($aff) {
+  my $printed_version_header;
+  return (
+    _dt("Distribution", $aff->{packageName}),
+    (map { _dt($printed_version_header++ ? "" : "Versions", $_) } phrases_from_cve_versions($aff->{versions})),
+    "",
+    _dt("MetaCPAN", "https://metacpan.org/dist/" . ($aff->{packageName} // '')),
+    ($aff->{repo} ? _dt("VCS Repo", $aff->{repo}) : ()),
+  );
+}
+
+# problemTypes descriptions carry the text in 'description'; impacts use the
+# standard CVE description object, which spells it 'value'. Reading only the
+# former left every Impacts section empty, and an empty section is dropped.
+sub _first_description ($entry) {
+  my $description = $entry->{descriptions}->[0] // {};
+  return $description->{value} // $description->{description} // '';
+}
+
 sub _dt ($k, $v) {
   $v //= '';
   return sprintf("%15s  %s", ($k ? "$k:" : ""), $v);
@@ -89,6 +112,20 @@ sub _dt ($k, $v) {
 
 sub _section ($t, @items) {
   return @items && $items[0] ? (_header($t), @items, "") : ();
+}
+
+# Free-prose values, blank-line separated. The separator goes *between* values:
+# _section already closes every section with one blank line, so a trailing
+# separator here doubled the gap before whichever section came next.
+sub _paragraphs ($entries) {
+  my @out;
+  for my $entry (@$entries) {
+    push @out, "" if @out;
+    my $text = Text::Wrap::wrap('', '', $entry->{value});
+    $text =~ s/\n+\z//;
+    push @out, $text;
+  }
+  return @out;
 }
 
 sub _descriptions_text ($j) {
