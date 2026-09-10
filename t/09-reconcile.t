@@ -91,7 +91,6 @@ cpansec:
   cve: CVE-1900-7777
   distribution: Example-Dist
   module: Example::Module
-  author: EXAMPLE
   repo: https://example.com/repo
   affected:
     - "<= 1.0"

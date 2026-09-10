@@ -19,7 +19,6 @@ cpansec:
   cve: CVE-1900-7277272
   distribution: Crypt-URandom-Token
   module: Crypt::URandom::Token
-  author: STIGTSP
   repo: https://github.com/stigtsp/Crypt-URandom-Token
 
   affected:

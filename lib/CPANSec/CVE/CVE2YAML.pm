@@ -80,11 +80,6 @@ class CPANSec::CVE::CVE2YAML {
       }
     }
 
-    # Only legacy records carry the PAUSE ID, in vendor; nothing emits it now.
-    if (defined $aff->{vendor} && length $aff->{vendor}) {
-      $cp{author} = _normalize_import_text($aff->{vendor});
-    }
-
     my @cwes = _extract_cwe_descriptions($cna->{problemTypes});
     $cp{cwes} = \@cwes if @cwes;
 

@@ -18,7 +18,6 @@ cpansec:
   cve: CVE-1900-9918
   distribution: Example-Dist
   module: Example::Module
-  author: EXAMPLE
   affected:
     - "<= 1.0"
   title: Example::Module versions through 1.0 for Perl do a thing

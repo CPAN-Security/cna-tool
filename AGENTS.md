@@ -262,8 +262,10 @@ to the distribution it belongs to.
   commercial-software vocabulary, and the schema's `anyOf` is satisfied without them.
 - `packageURL` is the bare distribution form, `pkg:cpan/<distribution>` — no namespace, no
   `author` qualifier, and never a version, which CVE 5.2.0 forbids.
-- Because nothing emits the PAUSE ID any more, `cpansec.author` is **optional** and serves as
-  local provenance only. It reaches no consumer and does not round-trip through import.
+- `cpansec.author` is **deprecated**: nothing emits the PAUSE ID, so it reaches no consumer.
+  The schema still accepts it so existing records validate, but `init` no longer writes it,
+  `import` no longer recovers it from legacy `vendor`, and lint warns (`deprecated_author`)
+  whenever it is present. Remove it from records as they are touched.
 - Records are emitted as `dataVersion` `5.2.0`.
 
 JSON validation:

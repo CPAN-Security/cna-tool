@@ -127,4 +127,39 @@ for my $i (0 .. $#metacpan_changelog_cases) {
   }
 }
 
+# author is deprecated: nothing emits it, so its presence only earns a warning.
+ok($by_id{deprecated_author}, 'warns when the record-level author key is present');
+is($by_id{deprecated_author}{severity}, 'warning', 'deprecated author is advisory');
+
+my $entry_author = CPANSec::CVE::Model->new(
+  cpansec => {
+    cve => 'CVE-1900-9999',
+    module => 'Example::Module',
+    affected => [
+      { distribution => 'Example-Dist', versions => ['<= 1.0'], author => 'AUTHOR' },
+    ],
+    title => 'Example::Module versions through 1.0 for Perl has an issue',
+    description => "Example::Module versions through 1.0 for Perl has an issue.\n\nMore details.",
+    solution => 'Update to a fixed release.',
+    references => [ { link => 'https://example.com/advisory', tags => ['patch'] } ],
+  },
+);
+my %entry_by_id = map { ($_->{id} => $_) } @{ $lint->run_model($entry_author, path => 't/var/CVE-1900-9999.yaml') };
+ok($entry_by_id{deprecated_author}, 'warns when an affected entry carries author');
+
+my $no_author = CPANSec::CVE::Model->new(
+  cpansec => {
+    cve => 'CVE-1900-9999',
+    distribution => 'Example-Dist',
+    module => 'Example::Module',
+    affected => ['<= 1.0'],
+    title => 'Example::Module versions through 1.0 for Perl has an issue',
+    description => "Example::Module versions through 1.0 for Perl has an issue.\n\nMore details.",
+    solution => 'Update to a fixed release.',
+    references => [ { link => 'https://example.com/advisory', tags => ['patch'] } ],
+  },
+);
+my %clean_by_id = map { ($_->{id} => $_) } @{ $lint->run_model($no_author, path => 't/var/CVE-1900-9999.yaml') };
+ok(!$clean_by_id{deprecated_author}, 'silent without author');
+
 done_testing();

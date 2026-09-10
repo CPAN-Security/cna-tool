@@ -18,7 +18,6 @@ cpansec:
   cve: CVE-1900-9920
   distribution: Example-Dist
   module: Example::Module
-  author: EXAMPLE
   affected:
     - "<= 1.0"
     - "1.2 <= 1.3"

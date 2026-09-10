@@ -19,7 +19,6 @@ cpansec:
   cve: CVE-1900-9930
   distribution: Example-Dist
   module: Example::Module
-  author: EXAMPLE
   repo: https://example.invalid/repo
   affected:
     - "<= 1.0"

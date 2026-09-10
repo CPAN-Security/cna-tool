@@ -26,9 +26,12 @@ properties:
         type: string
         pattern: "^[A-Za-z0-9_:]+$"
 
+      # Deprecated: the PAUSE ID is not emitted anywhere. Still accepted so
+      # existing records validate; lint warns when it is present.
       author:
         type: string
         pattern: "^[A-Z0-9]+$"
+        deprecated: true
 
       repo:
         type: string
@@ -64,6 +67,7 @@ properties:
                 author:
                   type: string
                   pattern: "^[A-Z0-9]+$"
+                  deprecated: true
                 repo:
                   type: string
                   format: uri

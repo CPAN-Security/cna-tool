@@ -76,7 +76,6 @@ cpansec:
   cve: $cve
   distribution: Example-Dist
   module: Example::Module
-  author: AUTHORID
   repo: https://example.invalid/repo
   affected:
     - "<= 1.0"

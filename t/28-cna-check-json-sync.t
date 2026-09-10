@@ -19,7 +19,6 @@ cpansec:
   cve: CVE-1900-9928
   distribution: Example-Dist
   module: Example::Module
-  author: EXAMPLE
   repo: https://github.com/example/project
   affected:
     - "<= 1.0"

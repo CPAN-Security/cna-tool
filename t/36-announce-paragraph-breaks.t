@@ -17,7 +17,6 @@ cpansec:
   cve: CVE-1900-9944
   distribution: Unicorn-Foobar
   module: Unicorn::Foobar
-  author: EXAMPLE
   repo: https://example.invalid/repo
   affected:
     - "0.41 < 0.55"

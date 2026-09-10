@@ -201,7 +201,6 @@ WARNING: distribution '$distribution' was derived from the module name and is
          Check it before publishing.
 UNVERIFIED
     }
-    my $author = $prefill{author} // 'TODO';
     my $repo = $prefill{repo};
 
     my $yaml_file = File::Spec->catfile($base, "$cve.yaml");
@@ -215,7 +214,6 @@ UNVERIFIED
       cve => $cve,
       module => $module,
       distribution => $distribution,
-      author => $author,
       repo => $repo,
     );
 
@@ -1001,13 +999,12 @@ UNVERIFIED
 
   method _yaml_stub (%in) {
     my $repo = defined($in{repo}) && length($in{repo}) ? $in{repo} : 'https://example.invalid/TODO-repo';
-    return sprintf <<'YAML', $in{cve}, $in{distribution}, $in{module}, $in{author}, $repo, $in{module}, $in{module};
+    return sprintf <<'YAML', $in{cve}, $in{distribution}, $in{module}, $repo, $in{module}, $in{module};
 # yaml-language-server: $schema=../schema/cpansec-cna-schema-01.yaml
 cpansec:
   cve: %s
   distribution: %s
   module: %s
-  author: %s
   repo: %s
 
   affected:
@@ -1089,9 +1086,6 @@ YAML
       if (defined $dist && length $dist) {
         my $rel = eval { $mc->release($dist) };
         if ($rel) {
-          my $author = _obj_get($rel, 'author');
-          $ret{author} = $author if defined $author && length $author;
-
           my $res = _obj_get($rel, 'resources');
           if (ref($res) eq 'HASH') {
             my $repo = $res->{repository};

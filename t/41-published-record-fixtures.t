@@ -37,7 +37,7 @@ subtest 'published records still import under the round-trip guard' => sub {
     is($@, '', "$cve imports with the guard enabled") or diag $@;
 
     like($yaml, qr/^  module: \Q$affected->{product}\E$/m, "$cve recovers module from product");
-    like($yaml, qr/^  author: \Q$affected->{vendor}\E$/m, "$cve recovers author from vendor");
+    unlike($yaml, qr/^\s*author:/m, "$cve does not carry vendor into the deprecated author key");
   }
 };
 

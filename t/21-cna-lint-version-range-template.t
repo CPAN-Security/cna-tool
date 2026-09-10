@@ -12,7 +12,6 @@ my $model = CPANSec::CVE::Model->new(
     cve => 'CVE-1900-9921',
     distribution => 'Example-Dist',
     module => 'Example::Module',
-    author => 'AUTHOR',
     affected => ['<= 1.0'],
     title => 'Example::Module {{VERSION_RANGE}} for Perl has an issue',
     description => "Example::Module {{VERSION_RANGE}} for Perl has an issue.\n\nMore details.",

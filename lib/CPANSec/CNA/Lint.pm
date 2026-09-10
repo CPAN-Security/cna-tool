@@ -22,6 +22,7 @@ class CPANSec::CNA::Lint {
     push @findings, _rule_metacpan_changelog_version_pinned($cpansec, $path);
     push @findings, _rule_description_length($cpansec, $path);
     push @findings, _rule_placeholders($cpansec, $path, $dists);
+    push @findings, _rule_deprecated_author($cpansec, $path, $dists);
 
     return \@findings;
   }
@@ -328,7 +329,7 @@ sub _metacpan_changelog_is_version_pinned ($url) {
 
 sub _rule_placeholders ($cpansec, $path, $dists) {
   my @hits;
-  for my $key (qw(title description module author)) {
+  for my $key (qw(title description module)) {
     my $v = $cpansec->{$key};
     next if ref($v);
     next unless defined $v;
@@ -363,6 +364,19 @@ sub _rule_placeholders ($cpansec, $path, $dists) {
     'Placeholder content found in: ' . join(', ', @hits) . '.',
     $path,
     1,
+  );
+}
+
+# Nothing emits the PAUSE ID, so author is dead weight in a record. The schema
+# still accepts it so existing records keep validating; this is the nudge.
+sub _rule_deprecated_author ($cpansec, $path, $dists) {
+  return () unless defined $cpansec->{author} || grep { defined $_->{author} } @$dists;
+  return _f(
+    'warning',
+    'deprecated_author',
+    'The author key is deprecated: the PAUSE ID is not emitted anywhere. Remove it.',
+    $path,
+    _line_for_key($path, 'author'),
   );
 }
 

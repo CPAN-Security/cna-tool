@@ -19,7 +19,6 @@ cpansec:
   cve: CVE-1900-9919
   distribution: Example-Dist
   module: Example::Module
-  author: EXAMPLE
   affected:
     - "<= 1.0"
   title: Example::Module {{VERSION_RANGE for Perl has an issue
