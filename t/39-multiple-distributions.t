@@ -65,6 +65,18 @@ subtest 'the announcement repeats a block per distribution' => sub {
   # Each range must stay attached to its own distribution.
   like($text, qr/Distribution:\s+Encode\n\s*Versions:\s+through 3\.20\n/, 'Encode keeps its range');
   like($text, qr/Distribution:\s+perl\n\s*Versions:\s+from 5\.36\.0 through 5\.38\.2\n/, 'perl keeps its range');
+
+  # Every block has the same shape: no blank line inside, one blank line
+  # between blocks, and the CVE ID stands apart from the first block.
+  like($text, qr/^\s*CVE ID:\s+CVE-1900-9997\n\n\s*Distribution:\s+Encode\n/m, 'CVE ID is separated from the first block');
+  like($text, qr{
+    ^\s*Distribution:\s+Encode\n
+    \s*Versions:\s+through\ 3\.20\n
+    \s*MetaCPAN:\s+\Qhttps://metacpan.org/dist/Encode\E\n
+    \s*VCS\ Repo:\s+\Qhttps://github.com/dankogai/p5-encode\E\n
+    \n
+    \s*Distribution:\s+perl\n
+  }mx, 'blocks are contiguous and separated by exactly one blank line');
 };
 
 subtest 'a dual-life record survives import with the guard on' => sub {

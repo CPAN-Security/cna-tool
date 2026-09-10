@@ -35,6 +35,7 @@ class CPANSec::CVE::Announce {
       _header([$cve->{cveMetadata}->{cveId}, "CPAN Security Group"], "="),
       "",
       _dt("CVE ID", $cve->{cveMetadata}->{cveId}),
+      "",
       _distribution_blocks(@affected),
       "",
       "",
@@ -74,9 +75,10 @@ sub _header ($t, $l = "-") {
     : ($t, ($l x length($t)));
 }
 
-# One labelled block per affected distribution, blank-line separated. A record
-# with a single distribution renders exactly as it always has; a dual-life
-# record repeats the block so each version range stays tied to its distribution.
+# One labelled block per affected distribution. Blocks are contiguous inside and
+# separated by a single blank line, so that gap is the only boundary the reader
+# has to recognise; a dual-life record repeats the block so each version range
+# stays tied to its distribution.
 sub _distribution_blocks (@affected) {
   my @out;
   for my $aff (@affected) {
@@ -91,7 +93,6 @@ sub _distribution_lines ($aff) {
   return (
     _dt("Distribution", $aff->{packageName}),
     (map { _dt($printed_version_header++ ? "" : "Versions", $_) } phrases_from_cve_versions($aff->{versions})),
-    "",
     _dt("MetaCPAN", "https://metacpan.org/dist/" . ($aff->{packageName} // '')),
     ($aff->{repo} ? _dt("VCS Repo", $aff->{repo}) : ()),
   );
