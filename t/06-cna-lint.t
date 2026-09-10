@@ -162,4 +162,27 @@ my $no_author = CPANSec::CVE::Model->new(
 my %clean_by_id = map { ($_->{id} => $_) } @{ $lint->run_model($no_author, path => 't/var/CVE-1900-9999.yaml') };
 ok(!$clean_by_id{deprecated_author}, 'silent without author');
 
+# A leading v on a version is a CPAN spelling quirk (podlators-v6.0.2); the
+# range should carry the bare number so phrasing and comparisons stay uniform.
+my $v_prefixed = CPANSec::CVE::Model->new(
+  cpansec => {
+    cve => 'CVE-1900-9999',
+    module => 'Pod::Man',
+    affected => [
+      { distribution => 'podlators', versions => ['< v6.0.2', 'v4.0 <= 5.0'] },
+      { distribution => 'perl', versions => ['< 5.44.0'] },
+    ],
+    title => 'Pod::Man versions before 6.0.2 for Perl has an issue',
+    description => "Pod::Man versions before 6.0.2 for Perl has an issue.\n\nMore details.",
+    solution => 'Update to a fixed release.',
+    references => [ { link => 'https://example.com/advisory', tags => ['patch'] } ],
+  },
+);
+my @v_findings = grep { $_->{id} eq 'version_v_prefix' } @{ $lint->run_model($v_prefixed, path => 't/var/CVE-1900-9999.yaml') };
+is(scalar @v_findings, 2, 'one warning per v-prefixed range');
+is($v_findings[0]{severity}, 'warning', 'v prefix is advisory');
+like($v_findings[0]{message}, qr/\Q< v6.0.2\E.*\Q< 6.0.2\E/, 'names the range and its normalized form');
+like($v_findings[1]{message}, qr/\Qv4.0 <= 5.0\E.*\Q4.0 <= 5.0\E/, 'strips the prefix from the lower bound too');
+ok(!grep({ $_->{id} eq 'version_v_prefix' } @{ $lint->run_model($no_author, path => 't/var/CVE-1900-9999.yaml') }), 'silent for bare versions');
+
 done_testing();

@@ -23,6 +23,7 @@ class CPANSec::CNA::Lint {
     push @findings, _rule_description_length($cpansec, $path);
     push @findings, _rule_placeholders($cpansec, $path, $dists);
     push @findings, _rule_deprecated_author($cpansec, $path, $dists);
+    push @findings, _rule_version_v_prefix($cpansec, $path, $dists);
 
     return \@findings;
   }
@@ -378,6 +379,40 @@ sub _rule_deprecated_author ($cpansec, $path, $dists) {
     $path,
     _line_for_key($path, 'author'),
   );
+}
+
+# CPAN lets a distribution spell its version with a leading v (podlators-v6.0.2).
+# The range should carry the bare number so announce phrasing and version
+# comparisons treat every distribution alike.
+sub _rule_version_v_prefix ($cpansec, $path, $dists) {
+  my @findings;
+  for my $dist (@$dists) {
+    for my $range (@{ $dist->{versions} // [] }) {
+      next if ref($range);
+      (my $bare = $range) =~ s/(?<![\w.])v(?=\d)//g;
+      next if $bare eq $range;
+      push @findings, _f(
+        'warning',
+        'version_v_prefix',
+        "Version range '$range' for $dist->{distribution} has a v prefix; write it as '$bare'.",
+        $path,
+        _line_for_text($path, $range),
+      );
+    }
+  }
+  return @findings;
+}
+
+# First line containing the literal text, for values that have no key of their own.
+sub _line_for_text ($path, $text) {
+  return 1 unless $path && -f $path;
+  open my $fh, '<', $path or return 1;
+  my $line = 1;
+  while (my $row = <$fh>) {
+    return $line if index($row, $text) >= 0;
+    $line++;
+  }
+  return 1;
 }
 
 1;
