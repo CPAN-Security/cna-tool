@@ -15,10 +15,16 @@ use JSON::PP ();
 use JSON::Validator ();
 use YAML::PP ();
 
+# The data repo may carry its own copy of the YAML schema, which wins when
+# present; the bundled one is the fallback. yaml-schema-path prints the latter
+# so a data repo can tell whether its copy has drifted.
+sub bundled_schema_path () {
+  return File::Spec->catfile(_module_project_root(), "schema", "cpansec-cna-schema-01.yaml");
+}
+
 sub default_schema_path () {
   my $root_schema = File::Spec->catfile("schema", "cpansec-cna-schema-01.yaml");
-  return $root_schema if -f $root_schema;
-  return File::Spec->catfile(_module_project_root(), "schema", "cpansec-cna-schema-01.yaml");
+  return -f $root_schema ? $root_schema : bundled_schema_path();
 }
 
 sub default_cve_schema_path () {

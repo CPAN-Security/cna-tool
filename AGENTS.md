@@ -220,6 +220,9 @@ YAML validation:
 - Local schema: `schema/cpansec-cna-schema-01.yaml`
 - YAML files include language-server hint comment for editor tooling.
 - Only `.yaml` source files are supported (`.yml` is intentionally ignored).
+- A data repo may carry its own copy of the local schema at `schema/`, and that copy wins
+  when present. `cpansec-cna yaml-schema-path` prints the bundled copy so the data repo can
+  diff or refresh its own.
 
 ### Affected distributions
 
@@ -351,7 +354,7 @@ Publication transition for sensitive CVEs:
 
 ## Script Inventory
 
-- `scripts/cpansec-cna`: primary workflow CLI (`init`, `check`, `build`, `emit`, `announce`, `import`, `reconcile`)
+- `scripts/cpansec-cna`: primary workflow CLI (`init`, `check`, `build`, `emit`, `announce`, `import`, `reconcile`, `yaml-schema-path`)
 - `scripts/cna`: short alias for the same CLI
 
 ## Migration Plan: Split Tooling from Data Repo

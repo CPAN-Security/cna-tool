@@ -234,6 +234,19 @@ Verbose:
 scripts/cna reconcile --verbose
 ```
 
+### 8. Find The Bundled YAML Schema
+
+```bash
+scripts/cna yaml-schema-path
+```
+
+Prints the absolute path of the YAML schema shipped with the tool. A data repo
+that keeps its own copy under `schema/` can diff against it:
+
+```bash
+diff schema/cpansec-cna-schema-01.yaml "$(cna yaml-schema-path)"
+```
+
 ## YAML Authoring Notes
 
 `init` generates a stub with required fields and commented optionals.

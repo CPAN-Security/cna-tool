@@ -57,6 +57,9 @@ class CPANSec::CNA::App {
     if ($cmd eq 'reconcile') {
       return $self->_cmd_reconcile(@argv);
     }
+    if ($cmd eq 'yaml-schema-path') {
+      return $self->_cmd_yaml_schema_path(@argv);
+    }
 
     die "Unknown command '$cmd'.\n" . $self->_usage_text;
   }
@@ -88,6 +91,8 @@ Commands:
                                     Convert CVE JSON to YAML macro with round-trip guard
   reconcile [CVE-ID] [--api-base URL]
                                     Compare local CNA container with published CVE JSON
+  yaml-schema-path
+                                    Print the path of the YAML schema bundled with the tool
 
 Global options:
   --cpansec-cna-root PATH           Path to CVE data repository root
@@ -493,6 +498,12 @@ UNVERIFIED
     system(@cmd);
     my $rc = $? >> 8;
     die "Editor command failed ($rc): @cmd\n" if $rc != 0;
+    return 0;
+  }
+
+  method _cmd_yaml_schema_path (@args) {
+    die "Usage: cna yaml-schema-path\n" if @args;
+    say CPANSec::CVE::YAML2CVE::bundled_schema_path();
     return 0;
   }
 
