@@ -1178,3 +1178,169 @@ git commit -m "Warn when a branch batch leaves out a branch CVE
 
 Co-Authored-By: <model> <noreply@anthropic.com>"
 ```
+
+---
+
+### Task 5: Hints that keep a branch batch up to date
+
+User decision: batches stay opt-in, but once a branch has one, the commands used while drafting should point back to it. Hints are one line on STDERR and appear only when the branch has its own batch (an unmerged batch file naming a CVE new on the branch). People who never batch never see them.
+
+- `init <CVE> <Module>`: after a successful init, if the branch has its own batch: `Note: this branch has an announce-multi batch; once <CVE> is filled in, run: cpansec-cna announce-multi --sync`
+- `build <CVE>` and `announce <CVE> --write|--output`: after success, if `--sync` would now write or remove a file: `Note: this branch's announce-multi batch is out of date; run: cpansec-cna announce-multi --sync`
+- `check`'s `multi_mismatch` message ends with `regenerate it with: cpansec-cna announce-multi --sync (branch batches) or announce-multi <its CVE IDs> --write`.
+- Never in an encrypted context, without an `announce-multi/` directory, or without a merged ref; a hint never changes an exit code.
+
+**Files:**
+- Modify: `lib/CPANSec/CNA/App.pm` (new methods `_branch_batches`, `_hint_multi_after_init`, `_hint_multi_out_of_date`; calls in `_cmd_init`, `_cmd_build`, `_cmd_announce`; message in `_multi_file_problems`)
+- Modify: `AGENTS.md` (5b)
+- Test: `t/53-cna-multi-hints.t`; adjust any existing assertion on the old `multi_mismatch` wording (grep `t/` for `regenerate it with`)
+
+**Interfaces:**
+- Consumes (Tasks 1 and 3): `_existing_merged_ref`, `_new_on_branch`, `_sync_plan($ref, $create, @explicit)`, `_sync_plan_lines`; existing field `$encrypted_context`.
+
+- [ ] **Step 1: Write the failing test**
+
+Create `t/53-cna-multi-hints.t` with the same header and helper subs as `t/50-cna-announce-multi-sync.t` (`_repo`, `_seed`, `_edit`, `_run`, `_commit_all`, `_write_raw`), plus:
+
+```perl
+my $note_stale = qr/^Note: this branch's announce-multi batch is out of date; run: cpansec-cna announce-multi --sync$/m;
+
+subtest 'build and announce hint when the branch batch is out of date' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  _run($root, 'announce-multi --create');
+  my ($rc, $out) = _run($root, 'build CVE-1900-9902');
+  is($rc, 0, 'build succeeds') or diag $out;
+  unlike($out, qr/^Note: /m, 'no hint while in sync');
+
+  _edit("$root/cves/CVE-1900-9903.yaml", sub { s/which is insecure\./which is insecure. Edited./ or die 'no match' });
+  ($rc, $out) = _run($root, 'build CVE-1900-9903');
+  is($rc, 0, 'build still succeeds') or diag $out;
+  like($out, $note_stale, 'build hints');
+  ($rc, $out) = _run($root, 'announce CVE-1900-9903 --write');
+  is($rc, 0, 'announce still succeeds') or diag $out;
+  like($out, $note_stale, 'announce --write hints');
+};
+
+subtest 'a new draft makes the batch out of date' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  _run($root, 'announce-multi --create');
+  _seed($root, 'CVE-1900-9904');
+  my ($rc, $out) = _run($root, 'build CVE-1900-9904');
+  like($out, $note_stale, 'hints about the missing CVE');
+};
+
+subtest 'no batch, no hints' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  my ($rc, $out) = _run($root, 'build CVE-1900-9902');
+  is($rc, 0, 'build succeeds') or diag $out;
+  unlike($out, qr/announce-multi/, 'silent for people who do not batch');
+};
+
+subtest 'init hints when the branch has a batch' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  _run($root, 'announce-multi --create');
+  my $out = qx(printf 'n\\nn\\n' | $cna --cpansec-cna-root '$root' init --force CVE-1900-9904 Foo::Bar 2>&1);
+  is($? >> 8, 0, 'init succeeds') or diag $out;
+  like($out, qr/^Note: this branch has an announce-multi batch; once CVE-1900-9904 is filled in, run: cpansec-cna announce-multi --sync$/m,
+    'init hints');
+};
+
+subtest 'init is silent without a batch' => sub {
+  my $root = _repo();
+  my $out = qx(printf 'n\\nn\\n' | $cna --cpansec-cna-root '$root' init --force CVE-1900-9904 Foo::Bar 2>&1);
+  is($? >> 8, 0, 'init succeeds') or diag $out;
+  unlike($out, qr/announce-multi/, 'no hint');
+};
+
+subtest 'check suggests --sync for a stale batch' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  _run($root, 'announce-multi --create');
+  _edit("$root/cves/CVE-1900-9903.yaml", sub { s/which is insecure\./which is insecure. Edited./ or die 'no match' });
+  my ($rc, $out) = _run($root, 'check CVE-1900-9902');
+  like($out, qr/multi_mismatch/, 'stale batch');
+  like($out, qr/regenerate it with: cpansec-cna announce-multi --sync \(branch batches\) or announce-multi CVE-1900-9902 CVE-1900-9903 --write/,
+    'names both ways to regenerate');
+};
+```
+
+Run: `nix develop --offline -c prove -l t/53-cna-multi-hints.t`
+Expected: FAIL (no hints; old mismatch wording).
+
+- [ ] **Step 2: Implement**
+
+Next to `_new_on_branch`, add:
+
+```perl
+  # The branch's own batches: unmerged batch files that name a CVE new on the branch.
+  method _branch_batches ($ref) {
+    my %branch = map { $_ => 1 } $self->_new_on_branch($ref, 'cves');
+    return grep {
+      my (undef, @covered) = parse_batch_filename(basename($_));
+      !$self->_git_path_exists_at_ref($ref, $_) && grep { $branch{$_} } @covered;
+    } sort glob('announce-multi/*.txt');
+  }
+
+  # Hints keep an opt-in batch current. They stay silent for people who never
+  # batch (no announce-multi/ directory, no branch batch), in encrypted
+  # contexts, and without a merged ref; they never change an exit code.
+  method _hint_multi_after_init ($cve) {
+    return if $encrypted_context || !-d 'announce-multi';
+    my $ref = $self->_existing_merged_ref // return;
+    return unless $self->_branch_batches($ref);
+    print STDERR "Note: this branch has an announce-multi batch; once $cve is filled in, "
+      . "run: cpansec-cna announce-multi --sync\n";
+  }
+
+  method _hint_multi_out_of_date () {
+    return if $encrypted_context || !-d 'announce-multi';
+    my $ref = $self->_existing_merged_ref // return;
+    my $plan = eval { $self->_sync_plan($ref, 0) } // return;
+    return unless grep { /^(?:writes|removes) / } $self->_sync_plan_lines($plan);
+    print STDERR "Note: this branch's announce-multi batch is out of date; run: cpansec-cna announce-multi --sync\n";
+  }
+```
+
+(The inner `grep { $branch{$_} } @covered` deliberately shadows `$_`; it is evaluated after the outer path checks.)
+
+Calls:
+- `_cmd_init`: immediately before each `return 0;` that ends a successful init, add `$self->_hint_multi_after_init($cve);` (use the method's own CVE variable name).
+- `_cmd_build`: after the JSON file is written successfully and before its `return 0;`, add `$self->_hint_multi_out_of_date;`.
+- `_cmd_announce`: in the `--write`/`--output` branch, after `print "Wrote $out\n";` and before `return 0;`, add `$self->_hint_multi_out_of_date;`. (Stdout-only `announce` stays silent.)
+
+In `_multi_file_problems`, replace the `multi_mismatch` message with:
+
+```perl
+    push @problems, ['multi_mismatch', "$path does not match generated announce-multi output; regenerate it with: "
+      . "cpansec-cna announce-multi --sync (branch batches) or announce-multi @ids --write."]
+```
+
+(`@ids` are the batch's CVE IDs parsed from its filename, already in scope there.) Update any existing test that asserted the old wording.
+
+- [ ] **Step 3: Run the tests**
+
+Run: `nix develop --offline -c prove -lr t`
+Expected: `All tests successful.`
+
+- [ ] **Step 4: Document**
+
+AGENTS.md 5b, add:
+
+```markdown
+- Hints: once a branch has its own batch, `init`, `build` and `announce --write` print a
+  one-line note on STDERR when the batch needs `announce-multi --sync`. Never shown without a
+  branch batch, in encrypted contexts, or without a merged ref; exit codes are unaffected.
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add lib/CPANSec/CNA/App.pm t/53-cna-multi-hints.t AGENTS.md
+git commit -m "Hint when a branch announce-multi batch needs --sync
+
+Co-Authored-By: <model> <noreply@anthropic.com>"
+```
