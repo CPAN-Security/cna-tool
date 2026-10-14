@@ -480,6 +480,8 @@ UNVERIFIED
     }
 
     return $self->_announce_multi_sync(\%opt, @ids) if $opt{sync};
+    return $self->_announce_multi_status
+      if !@ids && !$opt{write} && !$opt{force} && !defined $opt{output};
 
     die "announce-multi needs at least 2 CVEs; use 'announce $ids[0]' for a single CVE.\n" if @ids == 1;
     die "Usage: cna announce-multi <CVE-ID> <CVE-ID>... [--write|--output path] [--force]\n"
@@ -637,6 +639,68 @@ UNVERIFIED
     push @lines, map { "removes $_" } $plan->{removes}->@*;
     push @lines, map { "skips $_->[0]: only $_->[1] (a batch needs 2+ CVEs)" } $plan->{singles}->@*;
     return @lines ? @lines : ('nothing to batch');
+  }
+
+  # Bare announce-multi: what the branch has, what its batches look like, and
+  # what to run next. Changes nothing.
+  method _announce_multi_status () {
+    my $branch = eval { $self->_git_current_branch };
+    print "Branch: $branch\n" if defined $branch;
+    my $ref = $self->_existing_merged_ref;
+    if (!defined $ref) {
+      print "Cannot tell which CVEs are new on this branch: neither origin/main nor main exists.\n\n",
+        "Next:\n  cpansec-cna announce-multi <CVE-ID> <CVE-ID>... --write\n";
+      return 0;
+    }
+    print "Merged ref: $ref\n\n";
+
+    my $plan = $self->_sync_plan($ref);
+    my %groups = $plan->{groups}->%*;
+    my @invalid = $plan->{invalid}->@*;
+    my $encrypted = () = $self->_new_on_branch($ref, 'encrypted');
+
+    if (!%groups && !@invalid && !$encrypted) {
+      print "New CVEs on this branch: none\n";
+    } else {
+      print "New CVEs on this branch:\n";
+      my $width = max(map { length } keys %groups) // 0;
+      for my $distribution (sort keys %groups) {
+        my @ids = $groups{$distribution}->@*;
+        printf "  %-*s  %s%s\n", $width, $distribution, join(', ', @ids),
+          @ids == 1 ? ' (only one, nothing to batch)' : '';
+      }
+      print "  $_->[0]: cannot be loaded: $_->[1]\n" for @invalid;
+      printf "  %d CVE%s under encrypted/ skipped (batches are public-only)\n", $encrypted, $encrypted == 1 ? '' : 's'
+        if $encrypted;
+    }
+
+    my %branch = map { $_ => 1 } $plan->{branch}->@*;
+    my @listed;
+    for my $path (sort glob('announce-multi/*.txt')) {
+      my $merged = $self->_git_path_exists_at_ref($ref, $path);
+      my (undef, @covered) = parse_batch_filename(basename($path));
+      next if $merged && !grep { $branch{$_} } @covered;
+      push @listed, [$path, _batch_status($path, $plan, $merged, \%branch)];
+    }
+    if (@listed) {
+      print "\nBatches:\n";
+      print "  $_->[0]\n      $_->[1]\n" for @listed;
+    }
+
+    print "\nNext:\n";
+    print "  Fix the CVEs that cannot be loaded, then sync.\n" if @invalid;
+    my @changes = grep { /^(?:writes|removes) / } $self->_sync_plan_lines($plan);
+    if (@changes) {
+      print "  cpansec-cna announce-multi --sync --write\n", map("      $_\n", @changes);
+      print "  (batches are optional)\n"
+        unless grep { $_->[1] =~ /^unmerged, (?:in sync|stale|out of sync)/ } @listed;
+    } elsif (grep { $_->{state} eq 'unchanged' } $plan->{batches}->@*) {
+      print "  All batches are in sync.\n  cpansec-cna check --changed\n";
+    } else {
+      print "  Nothing to batch from this branch. To batch already-published CVEs:\n",
+        "  cpansec-cna announce-multi <CVE-ID> <CVE-ID>... --write\n";
+    }
+    return 0;
   }
 
   method _announce_multi_sync ($opt, @explicit) {
@@ -1691,6 +1755,23 @@ sub _read_text_file ($path) {
 sub _batch_covers ($path, $ids) {
   my (undef, @covered) = parse_batch_filename(basename($path));
   return scalar grep { $ids->{$_} } @covered;
+}
+
+sub _batch_status ($path, $plan, $merged, $branch) {
+  return 'merged (frozen)' if $merged;
+  my ($distribution, @ids) = parse_batch_filename(basename($path));
+  return 'unmerged, filename does not parse' unless defined $distribution;
+  return 'unmerged, not tied to this branch (left alone by --sync)' unless grep { $branch->{$_} } @ids;
+  my ($target) = grep { $_->{distribution} eq $distribution } $plan->{batches}->@*;
+  return 'unmerged, out of sync: --sync removes it' unless $target;
+  if ($target->{path} eq $path) {
+    return $target->{state} eq 'unchanged' ? 'unmerged, in sync' : 'unmerged, stale: content out of date';
+  }
+  my %have = map { $_ => 1 } @ids;
+  my @missing = grep { !$have{$_} } $target->{ids}->@*;
+  return @missing
+    ? 'unmerged, out of sync: missing ' . join(', ', @missing)
+    : "unmerged, out of sync: --sync replaces it with $target->{path}";
 }
 
 sub _normalize_cna_for_reconcile ($cna) {

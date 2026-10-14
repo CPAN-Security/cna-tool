@@ -143,6 +143,10 @@ The tooling is being prepared to move to a separate project. This guide is the h
 - Source of truth for announce rendering is YAML (`cves/*.yaml`).
 
 ### 5b. Multi-CVE Announcements
+- `cpansec-cna announce-multi` (no arguments): status only, changes nothing. Shows the
+  branch and merged ref, the CVEs new on the branch grouped by distribution, each batch
+  touching the branch with its state (merged/frozen, in sync, stale, out of sync, not tied
+  to the branch), and the command to run next.
 - `cpansec-cna announce-multi CVE-A CVE-B ...` (stdout)
 - `cpansec-cna announce-multi CVE-A CVE-B ... --write` (to `announce-multi/`)
 - `cpansec-cna announce-multi CVE-A CVE-B ... --output <path>`
@@ -453,7 +457,7 @@ When changing schema/lint:
 - `cpansec-cna emit [CVE] [--strict] [--cna-container-only]`
 - `cpansec-cna announce [CVE] [--write|--output PATH]`
 - `cpansec-cna announce-multi <CVE> <CVE>... [--write|--output PATH] [--force]`
-- `cpansec-cna announce-multi --sync [CVE...] [--write]`
+- `cpansec-cna announce-multi [--sync [CVE...] [--write]]` (no arguments: status)
 - `cpansec-cna import <CVE|PATH.json> [--force] [--no-guard]`
 - `cpansec-cna reconcile [CVE] [--api-base URL] [--verbose]`
 - Global:

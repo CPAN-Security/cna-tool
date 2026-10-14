@@ -103,7 +103,7 @@ subtest 'errors' => sub {
   copy('t/var/CVE-2025-40916.yaml', "$root/encrypted/CVE-1900-9904.yaml") or die "copy failed: $!";
 
   my @cases = (
-    ['announce-multi', qr/Usage: cna announce-multi/, 'no CVEs'],
+    ['announce-multi --write', qr/Usage: cna announce-multi/, 'no CVEs with --write'],
     ['announce-multi CVE-1900-9901', qr/use 'announce CVE-1900-9901' for a single CVE/, 'a single CVE'],
     ['announce-multi CVE-1900-9901 CVE-1900-9901', qr/Duplicate CVE ID CVE-1900-9901/, 'duplicate IDs'],
     ['announce-multi CVE-1900-9901 CVE-1900-9903', qr/share the primary distribution/, 'different distributions'],
