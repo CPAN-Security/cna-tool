@@ -796,7 +796,244 @@ Co-Authored-By: <model> <noreply@anthropic.com>"
 
 ---
 
-### Task 3: `multi_incomplete` check warning
+### Task 3: `--create`, implicit writes, `--dry-run`
+
+User decision (after Tasks 1–2): creating a batch must be explicit, and the sync actions write without `--write`.
+
+- `announce-multi --create [CVE...]` — like `--sync`, and may also start batches for distributions that have 2+ CVEs but no branch batch yet.
+- `announce-multi --sync [CVE...]` — only updates distributions that already have a branch batch (an unmerged batch file naming a branch CVE). A distribution with 2+ CVEs and no branch batch is reported as `Not batched <dist>: <ids> (opt in with --create)` and nothing is written for it. An explicit set whose target batch is already merged is still reported as `Already merged <path>`.
+- Both write by default. `--write` is accepted with them and changes nothing. `--dry-run` previews (prints `<mode> would:` plus the plan lines, then `Run without --dry-run to apply.`) and writes nothing. `--dry-run` without `--sync`/`--create` is a usage error: `--dry-run only applies to --sync and --create`.
+- Status "Next" suggests `cpansec-cna announce-multi --sync` for changes to existing batches and `cpansec-cna announce-multi --create   (batches are optional)` for distributions without one; when there are only unloadable drafts it prints just the "Fix …" line.
+
+**Files:**
+- Modify: `lib/CPANSec/CNA/App.pm` (`_cmd_announce_multi`, `_sync_plan`, `_sync_plan_lines`, `_announce_multi_sync`, `_announce_multi_status`, `_usage_text`)
+- Modify: `t/50-cna-announce-multi-sync.t`, `t/51-cna-announce-multi-status.t`
+- Modify: `AGENTS.md` (5b, Quick Command Reference), `multi-announce-handoff.md` (amend the branch-sync Decisions section)
+
+**Interfaces:**
+- Changes: `_sync_plan($ref, $create, @explicit)` — new `$create` flag (status passes 0); returned hash gains `uncreated => [{distribution, ids, path}]`.
+- Produces for Task 4: `announce-multi --create` creates a branch batch; `--sync` updates it.
+
+- [ ] **Step 1: Update the tests first (RED)**
+
+In `t/50-cna-announce-multi-sync.t`:
+- `preview lists the plan and writes nothing`: run `announce-multi --create --dry-run`; replace the `Run with --write` assertion with `like($out, qr/^Run without --dry-run to apply\.$/m, 'says how to apply');` and add `like($out, qr/^--create would:$/m, 'names the mode');`.
+- Everywhere a test makes the *first* batch with `announce-multi --sync --write`, use `announce-multi --create` instead (subtests: `--write writes the same text…` first call, `a new draft replaces…` first call, `a dropped draft…` first call, `batches of published CVEs…`, `one CVE per distribution…`). Where a test then updates an existing batch, use `announce-multi --sync` (the re-run in `--write writes the same text…`, the second call in `a new draft replaces…` and `a dropped draft…`).
+- `an explicit set that is already merged…`: run `announce-multi --sync CVE-1900-9900 CVE-1900-9901` (no `--write`); assertions unchanged.
+- `explicit IDs join the branch CVEs`: run `announce-multi --create CVE-1900-9901`.
+- `errors`: the broken-draft write is `announce-multi --create` (assertions unchanged); the broken-draft preview is `announce-multi --create --dry-run` (assertions unchanged). The no-merged-ref, `--output`, `--force` and missing-CVE cases keep `--sync` and their assertions.
+- Add:
+
+```perl
+subtest '--sync does not create batches' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  my ($rc, $out) = _run($root, 'announce-multi --sync');
+  is($rc, 0, 'succeeds') or diag $out;
+  like($out, qr/^Not batched Mojolicious-Plugin-CaptchaPNG: CVE-1900-9902, CVE-1900-9903 \(opt in with --create\)$/m,
+    'explains how to opt in');
+  ok(!-e "$root/announce-multi", 'nothing written');
+};
+
+subtest '--write is accepted and --dry-run is scoped' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  my ($rc, $out) = _run($root, 'announce-multi --create --write');
+  is($rc, 0, '--write with --create is harmless') or diag $out;
+  like($out, qr/^Wrote \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m, 'writes');
+  ($rc, $out) = _run($root, 'announce-multi --dry-run');
+  isnt($rc, 0, '--dry-run alone is refused');
+  like($out, qr/--dry-run only applies to --sync and --create/, 'explains');
+};
+```
+
+In `t/51-cna-announce-multi-status.t`:
+- Every `_run($root, 'announce-multi --sync --write');` that makes a batch becomes `_run($root, 'announce-multi --create');`.
+- `new CVEs without a batch`: replace the `suggests the sync` assertion with
+
+```perl
+  like($out, qr/^Next:\n  cpansec-cna announce-multi --create   \(batches are optional\)\n      writes \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m,
+    'suggests creating a batch');
+```
+
+  and drop the separate `batches stay optional` assertion (it is now part of that line).
+- `in sync, then stale`: after the stale edit add `like($out, qr/^  cpansec-cna announce-multi --sync$/m, 'suggests --sync');`.
+- `out of sync`: add `like($out, qr/^  cpansec-cna announce-multi --sync$/m, 'suggests --sync');`.
+- `invalid draft`: add `unlike($out, qr/Nothing to batch/, 'no contradictory advice');` — this needs a root with only the broken draft, so change the subtest's seeding to only `_write_raw("$root/cves/CVE-1900-9906.yaml", "cpansec: [\n");` (no 9902/9903) and keep the other assertions.
+
+Run: `nix develop --offline -c prove -l t/50-cna-announce-multi-sync.t t/51-cna-announce-multi-status.t`
+Expected: FAIL (`Unknown option '--create'`, missing `Not batched`, old Next text).
+
+- [ ] **Step 2: Options and dispatch (`_cmd_announce_multi`)**
+
+- Initialise `%opt` with `create => 0, dry_run => 0` as well.
+- In the loop add `if ($a eq '--create') { $opt{create} = 1; next; }` and `if ($a eq '--dry-run') { $opt{dry_run} = 1; next; }`.
+- Replace the `--sync` dispatch with:
+
+```perl
+    return $self->_announce_multi_sync(\%opt, @ids) if $opt{sync} || $opt{create};
+    die "--dry-run only applies to --sync and --create\n" if $opt{dry_run};
+```
+
+- The usage `die` second line becomes `"       cna announce-multi [--create|--sync] [CVE-ID...] [--dry-run]\n"`.
+- In `_usage_text`, replace the `announce-multi --sync …` entry with:
+
+```
+  announce-multi [--create|--sync] [CVE-ID...] [--dry-run]
+                                    --create: start batches for this branch's new CVEs;
+                                    --sync: update the branch's batches (writes; --dry-run previews)
+```
+
+- [ ] **Step 3: `_sync_plan($ref, $create, @explicit)`**
+
+Change the signature, and before the `for my $distribution (sort keys %$groups)` loop add:
+
+```perl
+    # Distributions that already have a branch batch: --sync only updates these.
+    my %has_batch;
+    for my $path (sort glob('announce-multi/*.txt')) {
+      next if $self->_git_path_exists_at_ref($ref, $path);
+      my ($distribution, @covered) = parse_batch_filename(basename($path));
+      $has_batch{$distribution} = 1 if defined $distribution && grep { $branch{$_} } @covered;
+    }
+```
+
+Declare `my @uncreated;` next to `my (@batches, @singles);`. Inside the loop, replace the lines from `my $text = …` to the `push @batches, …` with:
+
+```perl
+      my $merged = $self->_git_path_exists_at_ref($ref, $path);
+      if (!$merged && !$create && !$has_batch{$distribution}) {
+        push @uncreated, { distribution => $distribution, ids => \@ids, path => $path };
+        next;
+      }
+      my $text = $multi->render(map { $_->[1] } @members);
+      my $state = $merged ? 'merged'
+        : (-f $path && _read_text_file($path) eq $text) ? 'unchanged'
+        : 'write';
+      push @batches, { distribution => $distribution, ids => \@ids, path => $path, text => $text, state => $state };
+```
+
+Add `uncreated => \@uncreated,` to the returned hash.
+
+In `_sync_plan_lines`, before the final `return`, add:
+
+```perl
+    push @lines, map { "not batched $_->{distribution}: " . join(', ', $_->{ids}->@*) . ' (opt in with --create)' }
+      $plan->{uncreated}->@*;
+```
+
+- [ ] **Step 4: `_announce_multi_sync`**
+
+Rewrite its head and preview/apply split as:
+
+```perl
+  method _announce_multi_sync ($opt, @explicit) {
+    my $mode = $opt->{create} ? '--create' : '--sync';
+    die "--output cannot be combined with $mode (it writes one file per distribution)\n" if defined $opt->{output};
+    die "--force cannot be combined with $mode (it never overwrites merged batches)\n" if $opt->{force};
+    my $ref = $self->_existing_merged_ref
+      // die "Cannot tell which CVEs are new on this branch: neither origin/main nor main exists.\n";
+    my $plan = $self->_sync_plan($ref, $opt->{create}, @explicit);
+    my $apply = !$opt->{dry_run};
+
+    if (my @bad = $plan->{invalid}->@*) {
+      my $list = join('', map { "  $_->[0]: $_->[1]\n" } @bad);
+      die "Cannot sync: these CVEs cannot be loaded:\n$list" if $apply;
+      print STDERR "Skipped (cannot be loaded):\n$list";
+    }
+
+    if (!$apply) {
+      print "$mode would:\n", map("  $_\n", $self->_sync_plan_lines($plan));
+      print "Run without --dry-run to apply.\n";
+      return 0;
+    }
+```
+
+Keep the existing write/remove/skip loops after it, and append:
+
+```perl
+    print "Not batched $_->{distribution}: " . join(', ', $_->{ids}->@*) . " (opt in with --create)\n"
+      for $plan->{uncreated}->@*;
+```
+
+- [ ] **Step 5: Status "Next" (`_announce_multi_status`)**
+
+Call `$self->_sync_plan($ref, 0)`. Replace the whole `print "\nNext:\n"; …` block (down to, not including, `return 0;`) with:
+
+```perl
+    print "\nNext:\n";
+    my @changes = grep { /^(?:writes|removes) / } $self->_sync_plan_lines($plan);
+    my @uncreated = $plan->{uncreated}->@*;
+    if (@invalid) {
+      print "  Fix the CVEs that cannot be loaded, then sync.\n";
+    }
+    if (@changes) {
+      print "  cpansec-cna announce-multi --sync\n", map("      $_\n", @changes);
+    }
+    if (@uncreated) {
+      print "  cpansec-cna announce-multi --create   (batches are optional)\n",
+        map("      writes $_->{path}\n", @uncreated);
+    }
+    if (!@invalid && !@changes && !@uncreated) {
+      if (grep { $_->{state} eq 'unchanged' } $plan->{batches}->@*) {
+        print "  All batches are in sync.\n  cpansec-cna check --changed\n";
+      } else {
+        print "  Nothing to batch from this branch. To batch already-published CVEs:\n",
+          "  cpansec-cna announce-multi <CVE-ID> <CVE-ID>... --write\n";
+      }
+    }
+```
+
+- [ ] **Step 6: Run the tests**
+
+Run: `nix develop --offline -c prove -lr t`
+Expected: `All tests successful.`
+
+- [ ] **Step 7: Docs**
+
+AGENTS.md 5b: replace the `--sync` bullet group with:
+
+```markdown
+- `cpansec-cna announce-multi --create [CVE...]` / `--sync [CVE...]` (both write; add `--dry-run` to preview)
+  - Work on the CVEs new on this branch: `cves/<CVE>.yaml` in the working tree (committed or
+    not) but not on `origin/main` (else `main`), plus any CVEs named explicitly. One batch per
+    primary distribution with 2+ CVEs; a distribution with one is reported.
+  - `--create` starts batches where none exist yet (batches stay opt-in). `--sync` only updates
+    distributions that already have a branch batch and reports the others as "Not batched".
+  - Both write the batches and remove the branch's own superseded batches (unmerged files naming
+    a branch CVE that are no longer a target), printing each write and removal. Merged batches
+    and batches of already-published CVEs are never touched.
+  - Refuse without `origin/main` or `main`, with `--output` or `--force`, and when a branch CVE
+    cannot be loaded. `encrypted/` drafts are never batched.
+```
+
+and in the status bullet say it suggests `--create` or `--sync`. Quick Command Reference line becomes:
+
+```markdown
+- `cpansec-cna announce-multi [--create|--sync] [CVE...] [--dry-run]` (no arguments: status)
+```
+
+In `multi-announce-handoff.md`, at the end of "Decisions: branch sync and status (2026-10-14)", append:
+
+```markdown
+- Amendment: creating a batch is explicit. `--create` starts batches for distributions
+  without one; `--sync` only updates existing branch batches and reports the rest as "Not
+  batched". Both write without `--write` (the action is the request); `--dry-run` previews.
+  Status suggests `--create` or `--sync` accordingly.
+```
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add lib/CPANSec/CNA/App.pm t/50-cna-announce-multi-sync.t t/51-cna-announce-multi-status.t AGENTS.md multi-announce-handoff.md
+git commit -m "Make batch creation explicit with announce-multi --create
+
+Co-Authored-By: <model> <noreply@anthropic.com>"
+```
+
+---
+
+### Task 4: `multi_incomplete` check warning
 
 **Files:**
 - Modify: `lib/CPANSec/CNA/App.pm` (`_cmd_check`; new method `_multi_incomplete_findings`)
@@ -804,7 +1041,7 @@ Co-Authored-By: <model> <noreply@anthropic.com>"
 - Test: `t/52-cna-check-multi-incomplete.t`
 
 **Interfaces:**
-- Consumes (Task 1): `_existing_merged_ref`, `_new_on_branch`, `_load_groups`.
+- Consumes (Tasks 1 and 3): `_existing_merged_ref`, `_new_on_branch`, `_load_groups`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -814,7 +1051,7 @@ Create `t/52-cna-check-multi-incomplete.t` with the same header and helper subs 
 subtest 'a branch batch missing a branch CVE warns, without blocking' => sub {
   my $root = _repo();
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
-  _run($root, 'announce-multi --sync --write');
+  _run($root, 'announce-multi --create');
   my (undef, $in_sync) = _run($root, 'check CVE-1900-9902');
   unlike($in_sync, qr/multi_incomplete/, 'in sync: no warning');
 
@@ -846,7 +1083,7 @@ subtest 'under --pr-policy the base is the reference' => sub {
   my $base = qx(git -C '$root' rev-parse HEAD);
   chomp $base;
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
-  _run($root, 'announce-multi --sync --write');
+  _run($root, 'announce-multi --create');
   _seed($root, 'CVE-1900-9904');
   my (undef, $out) = _run($root, "check CVE-1900-9902 --pr-policy --base-sha $base");
   like($out, qr/multi_incomplete/, 'warns against the PR base');
@@ -890,7 +1127,7 @@ After `_announce_multi_findings`, add:
         severity => 'warning',
         id       => 'multi_incomplete',
         message  => "$path leaves out " . join(', ', @missing)
-          . ", new on this branch for $distribution; run announce-multi --sync --write.",
+          . ", new on this branch for $distribution; run announce-multi --sync.",
         path     => $path,
         line     => 1,
       };
@@ -930,7 +1167,7 @@ In AGENTS.md `### 3. Edit + Validate`, after the announce-multi bullets, add:
 ```markdown
   - `multi_incomplete` (warning; blocking only with `--strict`): an unmerged batch that
     names a CVE new on this branch leaves out another branch CVE of the same distribution.
-    Fix with `announce-multi --sync --write`. No batch, no warning.
+    Fix with `announce-multi --sync`. No batch, no warning.
 ```
 
 - [ ] **Step 6: Commit**
