@@ -10,7 +10,7 @@ use CPANSec::CNA::Lint::Reporter::Text ();
 use CPANSec::CVE ();
 use CPANSec::CVE::Announce ();
 use CPANSec::CVE::AnnounceMulti ();
-use CPANSec::CVE::BatchName qw(batch_filename parse_batch_filename);
+use CPANSec::CVE::BatchName qw(batch_filename parse_batch_filename sort_cve_ids);
 use CPANSec::CVE::CVE2YAML ();
 use CPANSec::CVE::YAML2CVE ();
 use File::Basename qw(dirname basename);
@@ -20,6 +20,7 @@ use File::Temp qw(tempfile);
 use Encode qw(decode);
 use HTTP::Tiny ();
 use JSON::PP qw(decode_json);
+use List::Util qw(max uniq);
 use Storable qw(dclone);
 use Text::ParseWords qw(shellwords);
 
@@ -93,6 +94,9 @@ Commands:
   announce-multi <CVE-ID> <CVE-ID>... [--write|--output path] [--force]
                                     Render one announcement covering several CVEs
                                     of the same distribution (--write: announce-multi/)
+  announce-multi --sync [CVE-ID...] [--write]
+                                    Batch this branch's new CVEs per distribution
+                                    (--write: write them, replace superseded batches)
   edit [CVE-ID]
                                     Open CVE YAML in $VISUAL/$EDITOR (or vi)
   import [CVE-ID|path.json] [--force] [--no-guard]
@@ -461,11 +465,12 @@ UNVERIFIED
   }
 
   method _cmd_announce_multi (@args) {
-    my %opt = (write => 0, force => 0);
+    my %opt = (write => 0, force => 0, sync => 0);
     my @ids;
 
     while (@args) {
       my $a = shift @args;
+      if ($a eq '--sync') { $opt{sync} = 1; next; }
       if ($a eq '--write') { $opt{write} = 1; next; }
       if ($a eq '--force') { $opt{force} = 1; next; }
       if ($a =~ /^--output=(.+)$/) { $opt{output} = $1; next; }
@@ -474,8 +479,11 @@ UNVERIFIED
       push @ids, $a;
     }
 
+    return $self->_announce_multi_sync(\%opt, @ids) if $opt{sync};
+
     die "announce-multi needs at least 2 CVEs; use 'announce $ids[0]' for a single CVE.\n" if @ids == 1;
-    die "Usage: cna announce-multi <CVE-ID> <CVE-ID>... [--write|--output path] [--force]\n" unless @ids >= 2;
+    die "Usage: cna announce-multi <CVE-ID> <CVE-ID>... [--write|--output path] [--force]\n"
+      . "       cna announce-multi --sync [CVE-ID...] [--write]\n" unless @ids >= 2;
     die "--write and --output cannot be combined\n" if $opt{write} && defined $opt{output};
 
     my ($text, $filename) = $self->_render_announce_multi(@ids);
@@ -497,14 +505,19 @@ UNVERIFIED
         map("  $_\n", @overlap)
         if @overlap;
     }
+    $self->_write_text_file($out, $text);
+    print "Wrote $out\n";
+    return 0;
+  }
+
+  method _write_text_file ($out, $text) {
     $self->_assert_encrypted_write_safe($out);
     my $dir = dirname($out);
     make_path($dir) unless -d $dir;
     open(my $fh, '>:encoding(UTF-8)', $out) or die "Cannot write $out: $!\n";
     print {$fh} $text;
     close($fh);
-    print "Wrote $out\n";
-    return 0;
+    return;
   }
 
   method _render_announce_multi (@ids) {
@@ -539,6 +552,128 @@ UNVERIFIED
       push @hits, "$other (" . join(', ', @shared) . ')' if @shared;
     }
     return @hits;
+  }
+
+  # CVEs new on this branch: $base_dir/<id>.yaml is in the working tree
+  # (committed or not) but not on $ref.
+  method _new_on_branch ($ref, $base_dir) {
+    return sort_cve_ids(
+      grep { !$self->_git_path_exists_at_ref($ref, "$base_dir/$_.yaml") }
+      map { m{^\Q$base_dir\E/(CVE-\d{4}-\d{4,19})\.yaml$} ? $1 : () } glob("$base_dir/*.yaml")
+    );
+  }
+
+  # Load @ids for batching, grouped by primary distribution:
+  # ({ dist => [[id, cve5], ...] }, [[id, error], ...]).
+  method _load_groups (@ids) {
+    my $multi = CPANSec::CVE::AnnounceMulti->new;
+    my (%groups, @invalid);
+    for my $id (sort_cve_ids(uniq(@ids))) {
+      my $cve = eval { $self->_load_multi_cve5($id) };
+      my $err = $@;
+      my $distribution = $cve ? $multi->primary_distribution($cve) : '';
+      if (!length $distribution) {
+        ($err ||= 'no primary distribution (affected[0].packageName)') =~ s/\s+\z//;
+        push @invalid, [$id, $err];
+        next;
+      }
+      push @{$groups{$distribution}}, [$id, $cve];
+    }
+    return (\%groups, \@invalid);
+  }
+
+  # What --sync does: every distribution with 2+ CVEs (new on the branch, plus
+  # @explicit) gets one batch, and the branch's own superseded batches go. A
+  # batch is the branch's own when it is unmerged and names a branch CVE;
+  # merged batches and batches of already-published CVEs are left alone.
+  method _sync_plan ($ref, @explicit) {
+    my @branch = $self->_new_on_branch($ref, 'cves');
+    my %branch = map { $_ => 1 } @branch;
+    my ($groups, $invalid) = $self->_load_groups(@branch, @explicit);
+    my %explicit = map { $_ => 1 } @explicit;
+    if (my ($bad) = grep { $explicit{$_->[0]} } @$invalid) {
+      die "$bad->[0]: $bad->[1]\n";
+    }
+
+    my $multi = CPANSec::CVE::AnnounceMulti->new;
+    my (@batches, @singles);
+    for my $distribution (sort keys %$groups) {
+      my @members = $groups->{$distribution}->@*;
+      if (@members < 2) {
+        push @singles, [$distribution, $members[0][0]];
+        next;
+      }
+      my @ids = map { $_->[0] } @members;
+      my $path = File::Spec->catfile('announce-multi', batch_filename($distribution, @ids));
+      my $text = $multi->render(map { $_->[1] } @members);
+      my $state = $self->_git_path_exists_at_ref($ref, $path) ? 'merged'
+        : (-f $path && _read_text_file($path) eq $text) ? 'unchanged'
+        : 'write';
+      push @batches, { distribution => $distribution, ids => \@ids, path => $path, text => $text, state => $state };
+    }
+
+    my %target = map { $_->{path} => 1 } @batches;
+    my @removes;
+    for my $path (sort glob('announce-multi/*.txt')) {
+      next if $target{$path} || $self->_git_path_exists_at_ref($ref, $path);
+      my (undef, @covered) = parse_batch_filename(basename($path));
+      push @removes, $path if grep { $branch{$_} } @covered;
+    }
+
+    return {
+      ref     => $ref,
+      branch  => \@branch,
+      invalid => $invalid,
+      groups  => { map { $_ => [map { $_->[0] } $groups->{$_}->@*] } keys %$groups },
+      batches => \@batches,
+      singles => \@singles,
+      removes => \@removes,
+    };
+  }
+
+  method _sync_plan_lines ($plan) {
+    my %verb = (write => 'writes', unchanged => 'unchanged', merged => 'already merged');
+    my @lines = map { "$verb{$_->{state}} $_->{path}" } $plan->{batches}->@*;
+    push @lines, map { "removes $_" } $plan->{removes}->@*;
+    push @lines, map { "skips $_->[0]: only $_->[1] (a batch needs 2+ CVEs)" } $plan->{singles}->@*;
+    return @lines ? @lines : ('nothing to batch');
+  }
+
+  method _announce_multi_sync ($opt, @explicit) {
+    die "--output cannot be combined with --sync (it writes one file per distribution)\n" if defined $opt->{output};
+    die "--force cannot be combined with --sync (it never overwrites merged batches)\n" if $opt->{force};
+    my $ref = $self->_existing_merged_ref
+      // die "Cannot tell which CVEs are new on this branch: neither origin/main nor main exists.\n";
+    my $plan = $self->_sync_plan($ref, @explicit);
+
+    if (my @bad = $plan->{invalid}->@*) {
+      my $list = join('', map { "  $_->[0]: $_->[1]\n" } @bad);
+      die "Cannot sync: these CVEs cannot be loaded:\n$list" if $opt->{write};
+      print STDERR "Skipped (cannot be loaded):\n$list";
+    }
+
+    if (!$opt->{write}) {
+      print "--sync would:\n", map("  $_\n", $self->_sync_plan_lines($plan));
+      print "Run with --write to apply.\n";
+      return 0;
+    }
+
+    for my $batch ($plan->{batches}->@*) {
+      if ($batch->{state} eq 'write') {
+        $self->_write_text_file($batch->{path}, $batch->{text});
+        print "Wrote $batch->{path}\n";
+      } elsif ($batch->{state} eq 'unchanged') {
+        print "Unchanged $batch->{path}\n";
+      } else {
+        print "Already merged $batch->{path}\n";
+      }
+    }
+    for my $path ($plan->{removes}->@*) {
+      unlink $path or die "Cannot remove $path: $!\n";
+      print "Removed $path\n";
+    }
+    print "Skipped $_->[0]: only $_->[1] (a batch needs 2+ CVEs)\n" for $plan->{singles}->@*;
+    return 0;
   }
 
   method _cmd_import (@args) {
@@ -824,15 +959,21 @@ UNVERIFIED
     return defined($rc) && $rc == 0 ? 'origin/main' : 'main';
   }
 
+  # origin/main, else main, but only a ref that exists.
+  method _existing_merged_ref () {
+    for my $ref (qw(origin/main main)) {
+      my ($rc) = $self->_run_cmd_capture_with_rc('git', 'rev-parse', '--verify', '--quiet', $ref);
+      return $ref if defined($rc) && $rc == 0;
+    }
+    return undef;
+  }
+
   # Without a merged ref every batch is checked as unmerged; say so once
   # (shallow CI checkouts). Outside a git work tree nothing is merged.
   method _warn_if_no_merged_ref () {
     my ($rc) = $self->_run_cmd_capture_with_rc('git', 'rev-parse', '--is-inside-work-tree');
     return unless defined($rc) && $rc == 0;
-    for my $ref (qw(origin/main main)) {
-      my ($ref_rc) = $self->_run_cmd_capture_with_rc('git', 'rev-parse', '--verify', '--quiet', $ref);
-      return if defined($ref_rc) && $ref_rc == 0;
-    }
+    return if defined $self->_existing_merged_ref;
     print STDERR "Warning: neither origin/main nor main exists; merged announce-multi batches cannot be recognised "
       . "and are checked as unmerged (fetch with fetch-depth: 0).\n";
   }
