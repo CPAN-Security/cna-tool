@@ -289,13 +289,19 @@ UNVERIFIED
 
     my $default_cve = (!$opt{changed} && !@positionals) ? $self->_default_cve_from_context : undef;
 
-    my @yaml_files = $self->_resolve_check_targets($positionals[0] // $default_cve, $opt{changed});
-    if (!@yaml_files) {
+    my $target_cve = $positionals[0] // $default_cve;
+    my @yaml_files = $self->_resolve_check_targets($target_cve, $opt{changed});
+    my @multi_files = $self->_resolve_multi_check_targets($target_cve, $opt{changed}, \@yaml_files);
+    if (!@yaml_files && !@multi_files) {
       print "No CVE YAML files to check.\n";
       return 0;
     }
 
     my ($findings_by_file, $errors, $warnings) = $self->_lint_and_validate_files(@yaml_files);
+    my ($multi_findings, $multi_errors)
+      = $self->_announce_multi_findings(\@multi_files, $opt{pr_policy} ? $opt{base_sha} : $self->_merged_ref);
+    $self->_merge_findings($findings_by_file, $multi_findings);
+    $errors += $multi_errors;
     my $pr_policy_errors = 0;
     if ($opt{pr_policy}) {
       my ($extra_findings, $extra_errors, $extra_warnings)
@@ -313,7 +319,7 @@ UNVERIFIED
       print "Summary: $errors error(s), $warnings warning(s), $schema_errors schema error(s).\n";
       return 1;
     }
-    if ($pr_policy_errors > 0) {
+    if ($pr_policy_errors > 0 || $multi_errors > 0) {
       print "Summary: $errors error(s), $warnings warning(s), $schema_errors schema error(s).\n";
       return 1;
     }
@@ -746,16 +752,17 @@ UNVERIFIED
     return @files;
   }
 
-  method _changed_yaml_files () {
+  method _changed_paths () {
     my @cand = $self->_run_cmd_capture('git', 'diff', '--name-only', 'origin/main...HEAD');
-    if (!@cand) {
-      @cand = $self->_run_cmd_capture('git', 'diff', '--name-only', 'HEAD~1...HEAD');
-    }
+    @cand = $self->_run_cmd_capture('git', 'diff', '--name-only', 'HEAD~1...HEAD') if !@cand;
+    chomp @cand;
+    return @cand;
+  }
 
+  method _changed_yaml_files () {
     my %seen;
     my @files;
-    for my $f (@cand) {
-      chomp $f;
+    for my $f ($self->_changed_paths) {
       next unless $f =~ m{^(cves|encrypted)/.+\.yaml$}i;
       next unless -f $f;
       next if $seen{$f}++;
@@ -765,6 +772,91 @@ UNVERIFIED
       push @files, $f;
     }
     return sort @files;
+  }
+
+  # A full check covers every batch file. A targeted or --changed check covers
+  # batches naming a targeted CVE, plus (with --changed) batch files changed
+  # on the branch.
+  method _resolve_multi_check_targets ($cve, $changed, $yaml_files) {
+    my @all = sort grep { -f $_ } glob('announce-multi/*.txt');
+    my $targeted = defined $cve && length $cve;
+    return @all unless $targeted || $changed;
+
+    my %ids = map { m{(CVE-\d{4}-\d{4,19})\.yaml$}i ? ($1 => 1) : () } @$yaml_files;
+    $ids{$cve} = 1 if $targeted;
+    my %changed_batch;
+    if ($changed) {
+      $changed_batch{$_} = 1 for grep { m{^announce-multi/[^/]+\.txt$} } $self->_changed_paths;
+    }
+    return grep { $changed_batch{$_} || _batch_covers($_, \%ids) } @all;
+  }
+
+  # $merged_ref is where a batch counts as merged: the PR base under
+  # --pr-policy, _merged_ref otherwise.
+  method _announce_multi_findings ($files, $merged_ref) {
+    my %findings_by_file;
+    my $errors = 0;
+    for my $path (@$files) {
+      my @findings = map {
+        +{ severity => 'error', id => $_->[0], message => $_->[1], path => $path, line => 1 }
+      } $self->_multi_file_problems($path, $merged_ref);
+      $findings_by_file{$path} = \@findings;
+      $errors += @findings;
+    }
+    return (\%findings_by_file, $errors);
+  }
+
+  # Where a batch counts as merged when not under --pr-policy. CI checkouts
+  # usually have origin/main but no local main, matching _changed_paths.
+  method _merged_ref () {
+    my ($rc) = $self->_run_cmd_capture_with_rc('git', 'rev-parse', '--verify', '--quiet', 'origin/main');
+    return defined($rc) && $rc == 0 ? 'origin/main' : 'main';
+  }
+
+  # Problems as [finding id, message] pairs. A merged batch is a record of what
+  # was sent: published CVEs can be updated (or even re-ordered or rejected)
+  # later, so once merged only its filename is checked.
+  method _multi_file_problems ($path, $merged_ref) {
+    my $name = basename($path);
+    my ($distribution, @ids) = parse_batch_filename($name);
+    return ['multi_filename', "$name is not a valid announce-multi filename (expected <Distribution>--CVE-YYYY-NNNN+NNNN.txt)."]
+      unless defined $distribution;
+    my %seen;
+    return ['multi_filename', "$name must name at least 2 distinct CVE IDs."]
+      if @ids < 2 || grep { $seen{$_}++ } @ids;
+
+    my @problems;
+    my $canonical = batch_filename($distribution, @ids);
+    push @problems, ['multi_filename', "$name is not in canonical form; expected $canonical."]
+      if $name ne $canonical;
+    return @problems if $self->_git_path_exists_at_ref($merged_ref, $path);
+
+    my @cves;
+    for my $id (@ids) {
+      if (-f File::Spec->catfile('encrypted', "$id.yaml")) {
+        push @problems, ['multi_cve_missing', "$id resolves to encrypted/; batches may only contain published CVEs under cves/."];
+      } elsif (!-f File::Spec->catfile('cves', "$id.yaml")) {
+        push @problems, ['multi_cve_missing', "$id has no YAML under cves/."];
+      } elsif (my $cve = eval { $self->_load_multi_cve5($id) }) {
+        push @cves, $cve;
+      } else {
+        (my $err = $@) =~ s/\s+\z//;
+        push @problems, ['multi_cve_invalid', "$id cannot be rendered: $err"];
+      }
+    }
+    return @problems if @cves != @ids;
+
+    my $multi = CPANSec::CVE::AnnounceMulti->new;
+    my @off = grep { $multi->primary_distribution($_) ne $distribution } @cves;
+    if (@off) {
+      my $list = join(', ', map { "$_->{cveMetadata}{cveId} (" . $multi->primary_distribution($_) . ')' } @off);
+      return @problems, ['multi_distribution',
+        "Every CVE must have primary distribution $distribution (from the filename); differs for $list."];
+    }
+
+    push @problems, ['multi_mismatch', "$path does not match generated announce-multi output; regenerate it with announce-multi --write."]
+      if $multi->render(@cves) ne _read_text_file($path);
+    return @problems;
   }
 
   method _find_yaml_for_cve ($cve) {
@@ -782,7 +874,7 @@ UNVERIFIED
       return $cve;
     }
 
-    my $branch = $self->_git_current_branch;
+    my $branch = eval { $self->_git_current_branch };   # outside git (or detached) the branch is only a missing hint
     return undef unless defined $branch && length $branch;
     return $1 if $branch =~ /^(CVE-\d{4}-\d{4,19})(?:--|-|$)/;
     return undef;
@@ -1400,6 +1492,11 @@ sub _read_text_file ($path) {
   my $txt = <$fh>;
   close($fh);
   return $txt // '';
+}
+
+sub _batch_covers ($path, $ids) {
+  my (undef, @covered) = parse_batch_filename(basename($path));
+  return scalar grep { $ids->{$_} } @covered;
 }
 
 sub _normalize_cna_for_reconcile ($cna) {

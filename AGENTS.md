@@ -114,6 +114,12 @@ The tooling is being prepared to move to a separate project. This guide is the h
   - Lint is advisory by default.
   - Schema failures are blocking.
   - `--strict` makes lint blocking.
+  - Also checks `announce-multi/` batch files: all of them on a full check, those naming
+    the CVE for `check CVE`, plus changed ones with `--changed`. Findings
+    `multi_filename`, `multi_cve_missing`, `multi_cve_invalid`, `multi_distribution` and
+    `multi_mismatch` are blocking. A merged batch (on `origin/main`, else `main`, or the PR
+    base under `--pr-policy`) only gets the filename checks: it is a record of what was
+    sent, and its CVEs may be updated afterwards.
 
 ### 4. Build or Emit JSON
 - Build/writes file:
