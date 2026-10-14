@@ -125,6 +125,9 @@ The tooling is being prepared to move to a separate project. This guide is the h
     runs `check --changed` must fetch one of them (`fetch-depth: 0`), or merged batches are
     re-checked as unmerged and may report a false `multi_mismatch`. `check` warns on stderr when neither exists (inside
     a git work tree, with batch files to check).
+  - `multi_incomplete` (warning; blocking only with `--strict`): an unmerged batch that
+    names a CVE new on this branch leaves out another branch CVE of the same distribution.
+    Fix with `announce-multi --sync`. No batch, no warning.
 
 ### 4. Build or Emit JSON
 - Build/writes file:

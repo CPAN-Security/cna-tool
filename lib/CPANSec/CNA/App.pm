@@ -308,6 +308,12 @@ UNVERIFIED
       = $self->_announce_multi_findings(\@multi_files, $opt{pr_policy} ? $opt{base_sha} : $self->_merged_ref);
     $self->_merge_findings($findings_by_file, $multi_findings);
     $errors += $multi_errors;
+    my $incomplete_ref = $opt{pr_policy} ? $opt{base_sha} : $self->_existing_merged_ref;
+    if (@multi_files && defined $incomplete_ref) {
+      my ($incomplete, $incomplete_warnings) = $self->_multi_incomplete_findings(\@multi_files, $incomplete_ref);
+      $self->_merge_findings($findings_by_file, $incomplete);
+      $warnings += $incomplete_warnings;
+    }
     my $pr_policy_errors = 0;
     if ($opt{pr_policy}) {
       my ($extra_findings, $extra_errors, $extra_warnings)
@@ -1045,6 +1051,35 @@ UNVERIFIED
       $errors += @findings;
     }
     return (\%findings_by_file, $errors);
+  }
+
+  # Advisory: a batch that is the branch's own (unmerged, naming a branch CVE)
+  # should name every branch CVE of its distribution. Batches stay optional, so
+  # nothing fires without one.
+  method _multi_incomplete_findings ($files, $ref) {
+    my @branch = $self->_new_on_branch($ref, 'cves');
+    my %branch = map { $_ => 1 } @branch;
+    my ($groups) = $self->_load_groups(@branch);
+    my %findings_by_file;
+    my $warnings = 0;
+    for my $path (@$files) {
+      next if $self->_git_path_exists_at_ref($ref, $path);
+      my ($distribution, @ids) = parse_batch_filename(basename($path));
+      next unless defined $distribution && grep { $branch{$_} } @ids;
+      my %have = map { $_ => 1 } @ids;
+      my @missing = grep { !$have{$_} } map { $_->[0] } @{$groups->{$distribution} // []};
+      next unless @missing;
+      push @{$findings_by_file{$path}}, {
+        severity => 'warning',
+        id       => 'multi_incomplete',
+        message  => "$path leaves out " . join(', ', @missing)
+          . ", new on this branch for $distribution; run announce-multi --sync.",
+        path     => $path,
+        line     => 1,
+      };
+      $warnings++;
+    }
+    return (\%findings_by_file, $warnings);
   }
 
   # Where a batch counts as merged when not under --pr-policy. CI checkouts
