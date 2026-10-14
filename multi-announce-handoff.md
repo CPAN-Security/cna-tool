@@ -239,3 +239,35 @@ PR policy (`--pr-policy --base-sha`):
 `CPANSec::CVE::Announce` splits into `subject_line` and `render_cve5_body`
 (banner down). `render_cve5_hash` is their concatenation, so single output
 is unchanged, and a batch concatenates the bodies.
+
+## Decisions: branch sync and status (2026-10-14)
+
+Use case: a branch drafts several CVEs and the batch should track them
+without retyping IDs.
+
+- **New on this branch** means `cves/<CVE>.yaml` exists in the working tree
+  (committed or not) but not on the merged ref (`origin/main`, else `main`;
+  the PR base under `--pr-policy`). `encrypted/` drafts are never batched;
+  they are only counted. Without a merged ref, sync refuses.
+- `announce-multi --sync [CVE...]`: the batch is exactly the branch's new
+  public CVEs, plus any explicitly named (already merged) ones, grouped by
+  primary distribution; each distribution with 2+ CVEs gets one batch, a
+  distribution with one is reported and skipped. Without `--write` it only
+  prints what it would do.
+- `announce-multi --sync --write`: writes the batches and **auto-removes**
+  the branch's own superseded batches — unmerged batch files that name a
+  branch CVE but are no longer a sync target (a CVE was added or dropped).
+  It prints every removal. Merged batches and unmerged batches that name no
+  branch CVE (batches of already-published CVEs) are never touched. A target
+  that is already merged is reported, not rewritten. `--output` and `--force`
+  do not combine with `--sync`. Unloadable branch CVEs block `--write`.
+- Bare `announce-multi` prints status and changes nothing: the branch and
+  merged ref, new CVEs grouped by distribution (single ones and skipped
+  encrypted drafts noted), batch files touching the branch with their state
+  (merged/frozen, in sync, stale, out of sync, not tied to the branch), and a
+  suggested next command (`--sync --write`, `check --changed`, or the
+  explicit-ID form when there is nothing to batch).
+- `check` warns (`multi_incomplete`, severity warning, non-blocking unless
+  `--strict`) when an unmerged batch naming a branch CVE leaves out another
+  CVE new on the branch for the same distribution. Batches stay optional:
+  no batch, no warning.
