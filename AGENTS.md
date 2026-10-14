@@ -178,6 +178,9 @@ The tooling is being prepared to move to a separate project. This guide is the h
 - `--write` notes other batch files covering the same CVEs and never removes them. It
   overwrites an unmerged file without prompting but refuses a merged one (a frozen record of
   what was sent) unless `--force` is given.
+- Hints: once a branch has its own batch, `init`, `build` and `announce --write` print a
+  one-line note on STDERR when the batch needs `announce-multi --sync`. Never shown without a
+  branch batch, in encrypted contexts, or without a merged ref; exit codes are unaffected.
 
 ### 6. JSON -> YAML Import
 - `cpansec-cna import CVE-YYYY-NNNN`

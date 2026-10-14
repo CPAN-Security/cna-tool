@@ -240,6 +240,7 @@ UNVERIFIED
 
     print "Initialized $yaml_file\n";
     $self->_retire_reserved($cve, $reserved);
+    $self->_hint_multi_after_init($cve);
     return 0;
   }
 
@@ -389,6 +390,7 @@ UNVERIFIED
     close($fh);
 
     print "Wrote $json_file\n";
+    $self->_hint_multi_out_of_date;
     return 0;
   }
 
@@ -462,6 +464,7 @@ UNVERIFIED
       print {$fh} $text;
       close($fh);
       print "Wrote $out\n";
+      $self->_hint_multi_out_of_date;
       return 0;
     }
 
@@ -572,6 +575,34 @@ UNVERIFIED
       grep { !$self->_git_path_exists_at_ref($ref, "$base_dir/$_.yaml") }
       map { m{^\Q$base_dir\E/(CVE-\d{4}-\d{4,19})\.yaml$} ? $1 : () } glob("$base_dir/*.yaml")
     );
+  }
+
+  # The branch's own batches: unmerged batch files that name a CVE new on the branch.
+  method _branch_batches ($ref) {
+    my %branch = map { $_ => 1 } $self->_new_on_branch($ref, 'cves');
+    return grep {
+      my (undef, @covered) = parse_batch_filename(basename($_));
+      !$self->_git_path_exists_at_ref($ref, $_) && grep { $branch{$_} } @covered;
+    } sort glob('announce-multi/*.txt');
+  }
+
+  # Hints keep an opt-in batch current. They stay silent for people who never
+  # batch (no announce-multi/ directory, no branch batch), in encrypted
+  # contexts, and without a merged ref; they never change an exit code.
+  method _hint_multi_after_init ($cve) {
+    return if $encrypted_context || !-d 'announce-multi';
+    my $ref = $self->_existing_merged_ref // return;
+    return unless $self->_branch_batches($ref);
+    print STDERR "Note: this branch has an announce-multi batch; once $cve is filled in, "
+      . "run: cpansec-cna announce-multi --sync\n";
+  }
+
+  method _hint_multi_out_of_date () {
+    return if $encrypted_context || !-d 'announce-multi';
+    my $ref = $self->_existing_merged_ref // return;
+    my $plan = eval { $self->_sync_plan($ref, 0) } // return;
+    return unless grep { /^(?:writes|removes) / } $self->_sync_plan_lines($plan);
+    print STDERR "Note: this branch's announce-multi batch is out of date; run: cpansec-cna announce-multi --sync\n";
   }
 
   # Load @ids for batching, grouped by primary distribution:
@@ -1151,7 +1182,8 @@ UNVERIFIED
         "Every CVE must have primary distribution $distribution (from the filename); differs for $list."];
     }
 
-    push @problems, ['multi_mismatch', "$path does not match generated announce-multi output; regenerate it with announce-multi --write."]
+    push @problems, ['multi_mismatch', "$path does not match generated announce-multi output; regenerate it with: "
+      . "cpansec-cna announce-multi --sync (branch batches) or announce-multi @ids --write."]
       if $multi->render(@cves) ne _read_text_file($path);
     return @problems;
   }
