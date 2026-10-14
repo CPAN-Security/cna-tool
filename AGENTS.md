@@ -324,6 +324,15 @@ GitHub Action:
 - Runs `cpansec-cna check --changed --format github`
 - Produces inline annotations.
 
+`announce-multi/` under `--pr-policy`:
+- New batch files are always allowed, including for CVEs already on the base.
+- A batch file on the base must not change or be removed (`multi_not_allowed`).
+- The example workflow watches `announce-multi/*.txt`, maps each changed batch to the CVEs
+  its filename names, and fails on batch filenames that do not parse.
+- The data repo's `cna-lint.yml` (`check --changed`) must also include
+  `announce-multi/*.txt` in any `paths:` filter, or a PR that only adds a batch file is
+  never checked.
+
 Design intent:
 - Fast signal on modified CVE YAMLs.
 - Keep CI behavior aligned with local command behavior.

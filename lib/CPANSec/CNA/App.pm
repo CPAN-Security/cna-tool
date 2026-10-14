@@ -310,6 +310,12 @@ UNVERIFIED
       $errors += $extra_errors;
       $warnings += $extra_warnings;
       $pr_policy_errors += $extra_errors;
+      my $scope = defined $target_cve && length $target_cve ? { $target_cve => 1 } : undef;
+      my ($multi_policy, $multi_policy_errors)
+        = $self->_pr_policy_announce_multi_findings($opt{base_sha}, $scope);
+      $self->_merge_findings($findings_by_file, $multi_policy);
+      $errors += $multi_policy_errors;
+      $pr_policy_errors += $multi_policy_errors;
     }
     my $schema_errors = $self->_count_schema_errors($findings_by_file);
     my $report = $self->_render_findings($findings_by_file, $opt{format});
@@ -1076,6 +1082,33 @@ UNVERIFIED
       path => $yaml,
       line => 1,
     };
+  }
+
+  # A batch file on the base is frozen, like announce/<CVE>.txt. New batch
+  # files are always allowed, so only base-side files are examined. $ids limits
+  # this to batches naming those CVEs; undef means every batch.
+  method _pr_policy_announce_multi_findings ($base_sha, $ids) {
+    my %findings_by_file;
+    my $errors = 0;
+    for my $path ($self->_run_cmd_capture('git', 'ls-tree', '--name-only', $base_sha, '--', 'announce-multi/')) {
+      chomp $path;
+      next unless $path =~ m{^announce-multi/[^/]+\.txt$};
+      next if $ids && !_batch_covers($path, $ids);
+
+      my $message;
+      if (!-f $path) {
+        $message = "$path must not be removed once merged.";
+      } elsif ($self->_git_show_text_at_ref($base_sha, $path) ne _read_text_file($path)) {
+        $message = "$path must not change once merged.";
+      }
+      next unless defined $message;
+
+      push @{$findings_by_file{$path}}, {
+        severity => 'error', id => 'multi_not_allowed', message => $message, path => $path, line => 1,
+      };
+      $errors++;
+    }
+    return (\%findings_by_file, $errors);
   }
 
   method _pr_policy_announce_findings ($yaml_files, $base_sha) {

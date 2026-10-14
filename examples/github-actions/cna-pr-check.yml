@@ -6,6 +6,7 @@ on:
       - "cves/*.yaml"
       - "cves/*.json"
       - "announce/*.txt"
+      - "announce-multi/*.txt"
 
 permissions:
   contents: read
@@ -40,7 +41,7 @@ jobs:
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
 
-          if ! changed_raw="$(git diff --name-only "${base_sha}...${head_sha}" -- 'cves/*.yaml' 'cves/*.json' 'announce/*.txt')"; then
+          if ! changed_raw="$(git diff --name-only "${base_sha}...${head_sha}" -- 'cves/*.yaml' 'cves/*.json' 'announce/*.txt' 'announce-multi/*.txt')"; then
             echo "Failed to compute changed CVE files for range ${base_sha}...${head_sha}" >&2
             exit 1
           fi
@@ -55,10 +56,27 @@ jobs:
           printf 'Changed CVE files:\n'
           printf '  - %s\n' "${changed[@]}"
 
+          bad_batch=0
+          for f in "${changed[@]}"; do
+            case "$f" in
+              announce-multi/*)
+                if ! printf '%s\n' "$f" | grep -qE '^announce-multi/[^/]+--CVE-[0-9]{4}-[0-9]{4,19}(\+(CVE-[0-9]{4}-)?[0-9]{4,19})+\.txt$'; then
+                  echo "::error file=$f::announce-multi filename must list at least two CVE IDs (<Dist>--CVE-YYYY-NNNN+NNNN.txt)"
+                  bad_batch=1
+                fi
+                ;;
+            esac
+          done
+
+          # A batch maps to every CVE it names; checking each CVE also checks
+          # (and applies the PR policy to) the batches naming it.
           mapfile -t cves < <(
-            printf '%s\n' "${changed[@]}" \
-              | sed -nE 's#^(cves|announce)/(CVE-[0-9]{4}-[0-9]{4,19})\.(yaml|json|txt)$#\2#p' \
-              | sort -u
+            {
+              printf '%s\n' "${changed[@]}" \
+                | sed -nE 's#^(cves|announce)/(CVE-[0-9]{4}-[0-9]{4,19})\.(yaml|json|txt)$#\2#p'
+              printf '%s\n' "${changed[@]}" \
+                | perl -nE 'next unless m{^announce-multi/[^/]+?--(CVE-.+)\.txt$}; my $y; for (split /\+/, $1) { if (/^CVE-(\d{4})-\d+$/) { $y = $1; say } elsif (defined $y) { say "CVE-$y-$_" } }'
+            } | sort -u
           )
 
           status=0
@@ -96,6 +114,10 @@ jobs:
           cat "$summary_tmp" >> "$GITHUB_STEP_SUMMARY"
           cp "$summary_tmp" .cna-pr-summary.md
           rm -f "$summary_tmp"
+
+          if [ "$bad_batch" -ne 0 ]; then
+            status=1
+          fi
 
           if [ "$status" -ne 0 ]; then
             echo "::error title=CVE PR check failed::Blocking CVE findings found. See Step Summary."
