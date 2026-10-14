@@ -9,6 +9,8 @@ use CPANSec::CNA::Lint::Reporter::GitHub ();
 use CPANSec::CNA::Lint::Reporter::Text ();
 use CPANSec::CVE ();
 use CPANSec::CVE::Announce ();
+use CPANSec::CVE::AnnounceMulti ();
+use CPANSec::CVE::BatchName qw(batch_filename parse_batch_filename);
 use CPANSec::CVE::CVE2YAML ();
 use CPANSec::CVE::YAML2CVE ();
 use File::Basename qw(dirname basename);
@@ -48,6 +50,9 @@ class CPANSec::CNA::App {
     if ($cmd eq 'announce') {
       return $self->_cmd_announce(@argv);
     }
+    if ($cmd eq 'announce-multi') {
+      return $self->_cmd_announce_multi(@argv);
+    }
     if ($cmd eq 'edit') {
       return $self->_cmd_edit(@argv);
     }
@@ -85,6 +90,9 @@ Commands:
                                     Validate/lint and print generated JSON to stdout
   announce [CVE-ID] [--write|--output path]
                                     Render announcement text to stdout or file
+  announce-multi <CVE-ID> <CVE-ID>... [--write|--output path]
+                                    Render one announcement covering several CVEs
+                                    of the same distribution (--write: announce-multi/)
   edit [CVE-ID]
                                     Open CVE YAML in $VISUAL/$EDITOR (or vi)
   import [CVE-ID|path.json] [--force] [--no-guard]
@@ -436,6 +444,84 @@ UNVERIFIED
     binmode(STDOUT, ':encoding(UTF-8)');
     print $text;
     return 0;
+  }
+
+  method _cmd_announce_multi (@args) {
+    my %opt = (write => 0);
+    my @ids;
+
+    while (@args) {
+      my $a = shift @args;
+      if ($a eq '--write') { $opt{write} = 1; next; }
+      if ($a =~ /^--output=(.+)$/) { $opt{output} = $1; next; }
+      if ($a eq '--output') { $opt{output} = shift(@args) // die "--output requires value\n"; next; }
+      die "Unknown option '$a'\n" if $a =~ /^-/;
+      push @ids, $a;
+    }
+
+    die "announce-multi needs at least 2 CVEs; use 'announce $ids[0]' for a single CVE.\n" if @ids == 1;
+    die "Usage: cna announce-multi <CVE-ID> <CVE-ID>... [--write|--output path]\n" unless @ids >= 2;
+    die "--write and --output cannot be combined\n" if $opt{write} && defined $opt{output};
+
+    my ($text, $filename) = $self->_render_announce_multi(@ids);
+
+    if (!$opt{write} && !defined $opt{output}) {
+      binmode(STDOUT, ':encoding(UTF-8)');
+      print $text;
+      return 0;
+    }
+
+    my $out = $opt{output} // File::Spec->catfile('announce-multi', $filename);
+    if ($opt{write}) {
+      # Merged batches are frozen, so an overlap can be legitimate: report it
+      # and leave any cleanup to the operator.
+      my @overlap = $self->_overlapping_batches($out, @ids);
+      print STDERR "Note: other batch files also cover some of these CVEs (left untouched):\n",
+        map("  $_\n", @overlap)
+        if @overlap;
+    }
+    $self->_assert_encrypted_write_safe($out);
+    my $dir = dirname($out);
+    make_path($dir) unless -d $dir;
+    open(my $fh, '>:encoding(UTF-8)', $out) or die "Cannot write $out: $!\n";
+    print {$fh} $text;
+    close($fh);
+    print "Wrote $out\n";
+    return 0;
+  }
+
+  method _render_announce_multi (@ids) {
+    my %seen;
+    for my $id (@ids) {
+      die "CVE must match CVE-YYYY-NNNN format\n" unless $id =~ /^CVE-\d{4}-\d{4,19}$/;
+      die "Duplicate CVE ID $id\n" if $seen{$id}++;
+    }
+    my $multi = CPANSec::CVE::AnnounceMulti->new;
+    my @cves = map { $self->_load_multi_cve5($_) } @ids;
+    my $text = $multi->render(@cves);
+    return ($text, batch_filename($multi->primary_distribution($cves[0]), @ids));
+  }
+
+  # Batches are public-only, like announce: they read cves/ and never touch
+  # encrypted/, so no encrypted context is ever entered here.
+  method _load_multi_cve5 ($cve) {
+    die "Refusing multi-announcement: $cve is under encrypted/. Publish it to cves/ first.\n"
+      if -f File::Spec->catfile('encrypted', "$cve.yaml");
+    my $yaml = File::Spec->catfile('cves', "$cve.yaml");
+    die "Cannot find YAML for $cve under cves/\n" unless -f $yaml;
+    return CPANSec::CVE->from_yaml_file($yaml)->to_cve5_hash;
+  }
+
+  method _overlapping_batches ($path, @ids) {
+    my %want = map { $_ => 1 } @ids;
+    my @hits;
+    for my $other (sort glob('announce-multi/*.txt')) {
+      next if $other eq $path;
+      my (undef, @covered) = parse_batch_filename(basename($other));
+      my @shared = grep { $want{$_} } @covered;
+      push @hits, "$other (" . join(', ', @shared) . ')' if @shared;
+    }
+    return @hits;
   }
 
   method _cmd_import (@args) {

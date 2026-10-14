@@ -131,6 +131,22 @@ The tooling is being prepared to move to a separate project. This guide is the h
 - `cpansec-cna announce CVE-YYYY-NNNN --output <path>`
 - Source of truth for announce rendering is YAML (`cves/*.yaml`).
 
+### 5b. Multi-CVE Announcements
+- `cpansec-cna announce-multi CVE-A CVE-B ...` (stdout)
+- `cpansec-cna announce-multi CVE-A CVE-B ... --write` (to `announce-multi/`)
+- `cpansec-cna announce-multi CVE-A CVE-B ... --output <path>`
+- Optional: one email for several CVEs of the same primary distribution, e.g. for
+  oss-security. Always in addition to the per-CVE `announce/<CVE>.txt` files.
+- Output: subject and title `<Distribution> for Perl: N CVEs`, an index of CVE IDs with
+  their full titles, then each CVE's normal announcement unchanged minus its `Subject:` line.
+- At least 2 CVEs, sorted numerically by ID. All must share the primary distribution (the
+  first `affected` entry, so dual-life records batch on it). Public-only: refuses any CVE
+  under `encrypted/`.
+- The filename lists every ID, year written once per year:
+  `announce-multi/<Dist>--CVE-2025-40906+CVE-2026-1001+1002.txt`.
+  `CPANSec::CVE::BatchName` builds and parses it.
+- `--write` notes other batch files covering the same CVEs and never removes them.
+
 ### 6. JSON -> YAML Import
 - `cpansec-cna import CVE-YYYY-NNNN`
 - Default includes round-trip guard:
@@ -213,6 +229,10 @@ Key modules:
   - CVE JSON -> YAML macro conversion with guard support.
 - `CPANSec::CVE::Announce`
   - Announcement rendering.
+- `CPANSec::CVE::AnnounceMulti`
+  - Multi-CVE announcement rendering; reuses `Announce::render_cve5_body`.
+- `CPANSec::CVE::BatchName`
+  - Batch filename build/parse and numeric CVE ID sorting.
 
 ## Schema and Validation
 
@@ -354,7 +374,7 @@ Publication transition for sensitive CVEs:
 
 ## Script Inventory
 
-- `scripts/cpansec-cna`: primary workflow CLI (`init`, `check`, `build`, `emit`, `announce`, `import`, `reconcile`, `yaml-schema-path`)
+- `scripts/cpansec-cna`: primary workflow CLI (`init`, `check`, `build`, `emit`, `announce`, `announce-multi`, `import`, `reconcile`, `yaml-schema-path`)
 - `scripts/cna`: short alias for the same CLI
 
 ## Migration Plan: Split Tooling from Data Repo
@@ -400,6 +420,7 @@ When changing schema/lint:
 - `cpansec-cna build [CVE] [--strict]`
 - `cpansec-cna emit [CVE] [--strict] [--cna-container-only]`
 - `cpansec-cna announce [CVE] [--write|--output PATH]`
+- `cpansec-cna announce-multi <CVE> <CVE>... [--write|--output PATH]`
 - `cpansec-cna import <CVE|PATH.json> [--force] [--no-guard]`
 - `cpansec-cna reconcile [CVE] [--api-base URL] [--verbose]`
 - Global:
