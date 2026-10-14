@@ -120,6 +120,9 @@ The tooling is being prepared to move to a separate project. This guide is the h
     `multi_mismatch` are blocking. A merged batch (on `origin/main`, else `main`, or the PR
     base under `--pr-policy`) only gets the filename checks: it is a record of what was
     sent, and its CVEs may be updated afterwards.
+  - Whether a batch is merged is read from `origin/main`, else local `main`. A CI job that
+    runs `check --changed` must fetch one of them (`fetch-depth: 0`), or merged batches are
+    re-checked as unmerged and may report a false `multi_mismatch`.
 
 ### 4. Build or Emit JSON
 - Build/writes file:

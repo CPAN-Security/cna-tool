@@ -15,7 +15,7 @@ subtest 'sort_cve_ids' => sub {
   is_deeply(
     [sort_cve_ids(qw(CVE-2026-1234567890123456789 CVE-2026-1234567890123456788))],
     [qw(CVE-2026-1234567890123456788 CVE-2026-1234567890123456789)],
-    'long sequence numbers compare exactly',
+    '19-digit sequence numbers sort numerically',
   );
   eval { sort_cve_ids('CVE-26-1') };
   like($@, qr/Invalid CVE ID 'CVE-26-1'/, 'rejects malformed IDs');

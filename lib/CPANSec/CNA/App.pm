@@ -880,7 +880,7 @@ UNVERIFIED
       return $cve;
     }
 
-    my $branch = eval { $self->_git_current_branch };   # outside git (or detached) the branch is only a missing hint
+    my $branch = eval { $self->_git_current_branch };   # any failure (outside git, detached HEAD) just means no branch hint
     return undef unless defined $branch && length $branch;
     return $1 if $branch =~ /^(CVE-\d{4}-\d{4,19})(?:--|-|$)/;
     return undef;
