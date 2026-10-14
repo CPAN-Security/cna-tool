@@ -20,8 +20,18 @@ class CPANSec::CVE::Announce {
   }
 
   method render_cve5_hash ($cve) {
-    my $cna = $cve->{containers}->{cna};
-    die "Expected CVE JSON record with containers.cna\n" unless ref($cna) eq 'HASH';
+    return $self->subject_line($cve) . "\n\n\n" . $self->render_cve5_body($cve);
+  }
+
+  method subject_line ($cve) {
+    my $cna = _cna($cve);
+    return "Subject: $cve->{cveMetadata}->{cveId}: $cna->{title}";
+  }
+
+  # Everything below the Subject line, from the banner down. A multi-CVE
+  # announcement concatenates these unchanged.
+  method render_cve5_body ($cve) {
+    my $cna = _cna($cve);
 
     local $Text::Wrap::columns = $wrap_columns;
 
@@ -29,9 +39,6 @@ class CPANSec::CVE::Announce {
     @affected = ({}) unless @affected;
 
     my @lines = (
-      "Subject: $cve->{cveMetadata}->{cveId}: $cna->{title}",
-      "",
-      "",
       _header([$cve->{cveMetadata}->{cveId}, "CPAN Security Group"], "="),
       "",
       _dt("CVE ID", $cve->{cveMetadata}->{cveId}),
@@ -73,6 +80,12 @@ sub _header ($t, $l = "-") {
   return ref($t) eq 'ARRAY'
     ? (($l x 72), sprintf("%-24s %47s", $t->@*), ($l x 72))
     : ($t, ($l x length($t)));
+}
+
+sub _cna ($cve) {
+  my $cna = $cve->{containers}->{cna};
+  die "Expected CVE JSON record with containers.cna\n" unless ref($cna) eq 'HASH';
+  return $cna;
 }
 
 # One labelled block per affected distribution. Blocks are contiguous inside and
