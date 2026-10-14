@@ -28,6 +28,7 @@ subtest 'a branch batch missing a branch CVE warns, without blocking' => sub {
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
   _run($root, 'announce-multi --create');
   my (undef, $in_sync) = _run($root, 'check CVE-1900-9902');
+  my ($strict_in_sync) = _run($root, 'check CVE-1900-9902 --strict');
   unlike($in_sync, qr/multi_incomplete/, 'in sync: no warning');
 
   _seed($root, 'CVE-1900-9904');
@@ -36,6 +37,10 @@ subtest 'a branch batch missing a branch CVE warns, without blocking' => sub {
   like($out, qr/multi_incomplete/, 'warns');
   like($out, qr/leaves out CVE-1900-9904/, 'names the missing CVE');
   is(_warnings($out), _warnings($in_sync) + 1, 'counted as one more warning');
+  my ($strict_rc) = _run($root, 'check CVE-1900-9902 --strict');
+  is($strict_rc, 1, '--strict blocks on the out-of-date batch');
+  # Fixture lint warnings may already fail --strict; only compare when in sync passes.
+  is($strict_in_sync, 0, '--strict passes while in sync') if $strict_in_sync == 0;
 };
 
 subtest 'no batch, no warning' => sub {
@@ -102,18 +107,6 @@ sub _edit ($path, $code) {
 sub _run ($root, $args) {
   my $out = qx($cna --cpansec-cna-root '$root' $args 2>&1);
   return ($? >> 8, $out);
-}
-
-sub _stdout ($root, $args) {
-  my $out = qx($cna --cpansec-cna-root '$root' $args 2>/dev/null);
-  die "command failed: $args\n" if $? >> 8;
-  return $out;
-}
-
-sub _slurp_raw ($path) {
-  open(my $fh, '<:raw', $path) or die "Cannot read $path: $!";
-  local $/;
-  return <$fh>;
 }
 
 sub _write_raw ($path, $text) {

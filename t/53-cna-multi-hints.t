@@ -43,6 +43,29 @@ subtest 'build and announce hint when the branch batch is out of date' => sub {
   like($out, $note_stale, 'announce --write hints');
 };
 
+subtest 'a carried published CVE does not trigger the hint' => sub {
+  my $root = _repo('CVE-1900-9901');
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  _run($root, 'announce-multi --create CVE-1900-9901');
+  my ($rc, $out) = _run($root, 'build CVE-1900-9902');
+  is($rc, 0, 'build succeeds') or diag $out;
+  unlike($out, qr/^Note: /m, 'no hint');
+};
+
+subtest 'the hint goes to STDERR only' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  _run($root, 'announce-multi --create');
+  _edit("$root/cves/CVE-1900-9903.yaml", sub { s/which is insecure\./which is insecure. Edited./ or die 'no match' });
+  my $err = qx($cna --cpansec-cna-root '$root' build CVE-1900-9903 2>&1 1>/dev/null);
+  like($err, $note_stale, 'hint on STDERR');
+  my $stdout = qx($cna --cpansec-cna-root '$root' build CVE-1900-9903 2>/dev/null);
+  unlike($stdout, qr/^Note: /m, 'not on STDOUT');
+  $stdout = qx($cna --cpansec-cna-root '$root' announce CVE-1900-9902 2>/dev/null);
+  is($? >> 8, 0, 'plain announce succeeds');
+  unlike($stdout, qr/^Note: /m, 'plain announce prints no hint');
+};
+
 subtest 'a new draft makes the batch out of date' => sub {
   my $root = _repo();
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
@@ -121,12 +144,6 @@ sub _edit ($path, $code) {
 sub _run ($root, $args) {
   my $out = qx($cna --cpansec-cna-root '$root' $args 2>&1);
   return ($? >> 8, $out);
-}
-
-sub _slurp_raw ($path) {
-  open(my $fh, '<:raw', $path) or die "Cannot read $path: $!";
-  local $/;
-  return <$fh>;
 }
 
 sub _write_raw ($path, $text) {

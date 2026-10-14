@@ -81,6 +81,16 @@ subtest 'out of sync' => sub {
   like($out, qr/^  cpansec-cna announce-multi --sync$/m, 'suggests --sync');
 };
 
+subtest 'a carried published CVE stays in sync' => sub {
+  my $root = _repo('CVE-1900-9901');
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  _run($root, 'announce-multi --create CVE-1900-9901');
+  my $path = "$mojo--CVE-1900-9901+9902+9903.txt";
+  my ($rc, $out) = _run($root, 'announce-multi');
+  like($out, qr/^  \Q$path\E\n      unmerged, in sync$/m, 'in sync');
+  like($out, qr/^  All batches are in sync\.$/m, 'nothing to do');
+};
+
 subtest 'published-only batches are listed but left alone' => sub {
   my $root = _repo(qw(CVE-1900-9900 CVE-1900-9901));
   _run($root, 'announce-multi CVE-1900-9900 CVE-1900-9901 --write');

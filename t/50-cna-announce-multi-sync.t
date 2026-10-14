@@ -109,6 +109,46 @@ subtest 'explicit IDs join the branch CVEs' => sub {
   like($out, qr/^Wrote \Q$mojo\E--CVE-1900-9901\+9902\+9903\.txt$/m, 'merged CVE included on request');
 };
 
+subtest 'explicit published CVEs are carried forward' => sub {
+  my $root = _repo('CVE-1900-9901');
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  my $b3 = "$mojo--CVE-1900-9901+9902+9903.txt";
+  my ($rc, $out) = _run($root, 'announce-multi --create CVE-1900-9901');
+  is($rc, 0, 'create succeeds') or diag $out;
+  like($out, qr/^Wrote \Q$b3\E$/m, 'batch includes the published CVE');
+  ($rc, $out) = _run($root, 'announce-multi --sync');
+  is($rc, 0, 'sync succeeds') or diag $out;
+  like($out, qr/^Unchanged \Q$b3\E$/m, 'sync keeps the batch as is');
+  unlike($out, qr/Removed/, 'nothing removed');
+  _seed($root, 'CVE-1900-9904');
+  ($rc, $out) = _run($root, 'announce-multi --sync');
+  is($rc, 0, 'sync after a new draft succeeds') or diag $out;
+  like($out, qr/^Wrote \Q$mojo\E--CVE-1900-9901\+9902\+9903\+9904\.txt$/m, 'published member kept');
+  like($out, qr/^Removed \Q$b3\E$/m, 'old batch removed');
+  ok(!-e "$root/$b3", 'old batch gone');
+};
+
+subtest 'mixed distributions' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  _seed($root, $_, 't/var/CVE-2025-40906.yaml') for qw(CVE-1900-9905 CVE-1900-9906);
+  my ($rc, $out) = _run($root, 'announce-multi --create');
+  is($rc, 0, 'create succeeds') or diag $out;
+  my ($bson) = glob("$root/announce-multi/BSON-XS--*.txt");
+  ok($bson, 'BSON-XS batch created') or return;
+  unlink $bson or die "unlink failed: $!";
+  _seed($root, 'CVE-1900-9904');
+  ($rc, $out) = _run($root, 'announce-multi --sync --dry-run');
+  is($rc, 0, 'preview succeeds') or diag $out;
+  like($out, qr/^  not batched BSON-XS: CVE-1900-9905, CVE-1900-9906 \(opt in with --create\)$/m, 'preview names the unbatched distribution');
+  ($rc, $out) = _run($root, 'announce-multi --sync');
+  is($rc, 0, 'sync succeeds') or diag $out;
+  like($out, qr/^Wrote \Q$mojo\E--CVE-1900-9902\+9903\+9904\.txt$/m, 'updates the existing batch');
+  like($out, qr/^Removed \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m, 'removes the old one');
+  like($out, qr/^Not batched BSON-XS: CVE-1900-9905, CVE-1900-9906 \(opt in with --create\)$/m, 'reports the unbatched one');
+  is_deeply([glob("$root/announce-multi/BSON-XS--*")], [], 'no BSON-XS batch recreated');
+};
+
 subtest 'one CVE per distribution is reported, not batched' => sub {
   my $root = _repo();
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
@@ -165,7 +205,7 @@ subtest 'errors' => sub {
   _write_raw("$root/cves/CVE-1900-9906.yaml", "cpansec: [\n");
   ($rc, $out) = _run($root, 'announce-multi --create');
   isnt($rc, 0, 'refuses to write with a broken draft');
-  like($out, qr/Cannot sync: these CVEs cannot be loaded/, 'explains');
+  like($out, qr/Cannot (?:sync|create): these CVEs cannot be loaded/, 'explains');
   like($out, qr/CVE-1900-9906/, 'names the broken draft');
   ok(!-e "$root/announce-multi", 'nothing written');
   ($rc, $out) = _run($root, 'announce-multi --create --dry-run');

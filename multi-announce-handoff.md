@@ -249,23 +249,27 @@ without retyping IDs.
   (committed or not) but not on the merged ref (`origin/main`, else `main`;
   the PR base under `--pr-policy`). `encrypted/` drafts are never batched;
   they are only counted. Without a merged ref, sync refuses.
-- `announce-multi --sync [CVE...]`: the batch is exactly the branch's new
-  public CVEs, plus any explicitly named (already merged) ones, grouped by
-  primary distribution; each distribution with 2+ CVEs gets one batch, a
-  distribution with one is reported and skipped. Without `--write` it only
-  prints what it would do.
-- `announce-multi --sync --write`: writes the batches and **auto-removes**
-  the branch's own superseded batches — unmerged batch files that name a
-  branch CVE but are no longer a sync target (a CVE was added or dropped).
-  It prints every removal. Merged batches and unmerged batches that name no
-  branch CVE (batches of already-published CVEs) are never touched. A target
-  that is already merged is reported, not rewritten. `--output` and `--force`
-  do not combine with `--sync`. Unloadable branch CVEs block `--write`.
+- `announce-multi --create [CVE...]` starts batches and `announce-multi --sync
+  [CVE...]` updates the branch's existing batches. Both write (the action is
+  the request; there is no `--sync --write`), and `--dry-run` previews. The
+  batch is the branch's new public CVEs, plus any explicitly named (already
+  merged) ones, plus published CVEs an existing branch batch already includes
+  (carried forward; one that no longer loads is dropped silently), grouped by
+  primary distribution. Each distribution with 2+ CVEs gets one batch (only
+  under `--create` if it has none yet; `--sync` reports it as "Not batched");
+  a distribution with one is reported and skipped.
+- Both **auto-remove** the branch's own superseded batches: unmerged batch
+  files that name a branch CVE but are no longer a target (a CVE was added or
+  dropped). Every removal is printed. Merged batches and unmerged batches that
+  name no branch CVE (batches of already-published CVEs) are never touched. A
+  target that is already merged is reported, not rewritten. `--output` and
+  `--force` do not combine with either. Unloadable branch CVEs block both,
+  except under `--dry-run`, which reports them.
 - Bare `announce-multi` prints status and changes nothing: the branch and
   merged ref, new CVEs grouped by distribution (single ones and skipped
   encrypted drafts noted), batch files touching the branch with their state
   (merged/frozen, in sync, stale, out of sync, not tied to the branch), and a
-  suggested next command (`--sync --write`, `check --changed`, or the
+  suggested next command (`--create`, `--sync`, `check --changed`, or the
   explicit-ID form when there is nothing to batch).
 - `check` warns (`multi_incomplete`, severity warning, non-blocking unless
   `--strict`) when an unmerged batch naming a branch CVE leaves out another

@@ -591,8 +591,9 @@ UNVERIFIED
   # contexts, and without a merged ref; they never change an exit code.
   method _hint_multi_after_init ($cve) {
     return if $encrypted_context || !-d 'announce-multi';
-    my $ref = $self->_existing_merged_ref // return;
-    return unless $self->_branch_batches($ref);
+    my $ref = eval { $self->_existing_merged_ref } // return;
+    my @batches = eval { $self->_branch_batches($ref) };
+    return unless @batches;
     print STDERR "Note: this branch has an announce-multi batch; once $cve is filled in, "
       . "run: cpansec-cna announce-multi --sync\n";
   }
@@ -624,15 +625,28 @@ UNVERIFIED
     return (\%groups, \@invalid);
   }
 
-  # What --sync does: every distribution with 2+ CVEs (new on the branch, plus
-  # @explicit) gets one batch, and the branch's own superseded batches go. A
+  # What --sync and --create do: every distribution with 2+ CVEs (new on the
+  # branch, plus @explicit, plus published CVEs the branch's batches already
+  # include) is rendered as one batch, and the branch's own superseded batches
+  # go. Batches are created for new distributions only under --create;
+  # otherwise only distributions with an existing branch batch are updated. A
   # batch is the branch's own when it is unmerged and names a branch CVE;
   # merged batches and batches of already-published CVEs are left alone.
+  # Published members of a branch batch are carried forward silently: one that
+  # no longer loads is dropped (check reports that batch on its own).
   method _sync_plan ($ref, $create, @explicit) {
     my @branch = $self->_new_on_branch($ref, 'cves');
     my %branch = map { $_ => 1 } @branch;
-    my ($groups, $invalid) = $self->_load_groups(@branch, @explicit);
+    my %carried;
+    for my $path (glob('announce-multi/*.txt')) {
+      next if $self->_git_path_exists_at_ref($ref, $path);
+      my (undef, @covered) = parse_batch_filename(basename($path));
+      next unless grep { $branch{$_} } @covered;
+      $carried{$_} = 1 for grep { !$branch{$_} && -f "cves/$_.yaml" } @covered;
+    }
     my %explicit = map { $_ => 1 } @explicit;
+    my ($groups, $invalid) = $self->_load_groups(@branch, @explicit, sort keys %carried);
+    $invalid = [grep { $branch{$_->[0]} || $explicit{$_->[0]} } @$invalid];
     if (my ($bad) = grep { $explicit{$_->[0]} } @$invalid) {
       die "$bad->[0]: $bad->[1]\n";
     }
@@ -778,7 +792,8 @@ UNVERIFIED
 
     if (my @bad = $plan->{invalid}->@*) {
       my $list = join('', map { "  $_->[0]: $_->[1]\n" } @bad);
-      die "Cannot sync: these CVEs cannot be loaded:\n$list" if $apply;
+      my $verb = $opt->{create} ? 'create' : 'sync';
+      die "Cannot $verb: these CVEs cannot be loaded:\n$list" if $apply;
       print STDERR "Skipped (cannot be loaded):\n$list";
     }
 
