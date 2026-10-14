@@ -146,19 +146,21 @@ The tooling is being prepared to move to a separate project. This guide is the h
 - `cpansec-cna announce-multi` (no arguments): status only, changes nothing. Shows the
   branch and merged ref, the CVEs new on the branch grouped by distribution, each batch
   touching the branch with its state (merged/frozen, in sync, stale, out of sync, not tied
-  to the branch), and the command to run next.
+  to the branch), and the command to run next (`--create` or `--sync`).
 - `cpansec-cna announce-multi CVE-A CVE-B ...` (stdout)
 - `cpansec-cna announce-multi CVE-A CVE-B ... --write` (to `announce-multi/`)
 - `cpansec-cna announce-multi CVE-A CVE-B ... --output <path>`
-- `cpansec-cna announce-multi --sync [CVE...]` (preview) / `--sync --write`
-  - Batches the CVEs new on this branch: `cves/<CVE>.yaml` in the working tree (committed
-    or not) but not on `origin/main` (else `main`), plus any CVEs named explicitly. One
-    batch per primary distribution with 2+ CVEs; a distribution with one is reported.
-  - `--write` writes the batches and removes the branch's own superseded batches (unmerged
-    files naming a branch CVE that are no longer a target), printing each removal. Merged
-    batches and batches of already-published CVEs are never touched.
-  - Refuses without `origin/main` or `main`, with `--output` or `--force`, and (with
-    `--write`) when a branch CVE cannot be loaded. `encrypted/` drafts are never batched.
+- `cpansec-cna announce-multi --create [CVE...]` / `--sync [CVE...]` (both write; add `--dry-run` to preview)
+  - Work on the CVEs new on this branch: `cves/<CVE>.yaml` in the working tree (committed or
+    not) but not on `origin/main` (else `main`), plus any CVEs named explicitly. One batch per
+    primary distribution with 2+ CVEs; a distribution with one is reported.
+  - `--create` starts batches where none exist yet (batches stay opt-in). `--sync` only updates
+    distributions that already have a branch batch and reports the others as "Not batched".
+  - Both write the batches and remove the branch's own superseded batches (unmerged files naming
+    a branch CVE that are no longer a target), printing each write and removal. Merged batches
+    and batches of already-published CVEs are never touched.
+  - Refuse without `origin/main` or `main`, with `--output` or `--force`, and when a branch CVE
+    cannot be loaded. `encrypted/` drafts are never batched.
 - `--force` is needed only to overwrite a batch file that is already merged.
 - Optional: one email for several CVEs of the same primary distribution, e.g. for
   oss-security. Always in addition to the per-CVE `announce/<CVE>.txt` files.
@@ -457,7 +459,7 @@ When changing schema/lint:
 - `cpansec-cna emit [CVE] [--strict] [--cna-container-only]`
 - `cpansec-cna announce [CVE] [--write|--output PATH]`
 - `cpansec-cna announce-multi <CVE> <CVE>... [--write|--output PATH] [--force]`
-- `cpansec-cna announce-multi [--sync [CVE...] [--write]]` (no arguments: status)
+- `cpansec-cna announce-multi [--create|--sync] [CVE...] [--dry-run]` (no arguments: status)
 - `cpansec-cna import <CVE|PATH.json> [--force] [--no-guard]`
 - `cpansec-cna reconcile [CVE] [--api-base URL] [--verbose]`
 - Global:

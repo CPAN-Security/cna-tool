@@ -271,3 +271,7 @@ without retyping IDs.
   `--strict`) when an unmerged batch naming a branch CVE leaves out another
   CVE new on the branch for the same distribution. Batches stay optional:
   no batch, no warning.
+- Amendment: creating a batch is explicit. `--create` starts batches for distributions
+  without one; `--sync` only updates existing branch batches and reports the rest as "Not
+  batched". Both write without `--write` (the action is the request); `--dry-run` previews.
+  Status suggests `--create` or `--sync` accordingly.

@@ -30,11 +30,12 @@ subtest 'preview lists the plan and writes nothing' => sub {
   _seed($root, 'CVE-1900-9902');
   _commit_all($root, 'draft 9902');
   _seed($root, 'CVE-1900-9903');    # never git-added
-  my ($rc, $out) = _run($root, 'announce-multi --sync');
+  my ($rc, $out) = _run($root, 'announce-multi --create --dry-run');
   is($rc, 0, 'succeeds') or diag $out;
   like($out, qr/^  writes \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m, 'branch CVEs, committed or not');
   unlike($out, qr/9901/, 'the merged CVE is left out');
-  like($out, qr/^Run with --write to apply\.$/m, 'says how to apply');
+  like($out, qr/^Run without --dry-run to apply\.$/m, 'says how to apply');
+  like($out, qr/^--create would:$/m, 'names the mode');
   ok(!-e "$root/announce-multi", 'nothing written');
 };
 
@@ -42,20 +43,20 @@ subtest '--write writes the same text as the explicit form' => sub {
   my $root = _repo();
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
   my $path = "$mojo--CVE-1900-9902+9903.txt";
-  my ($rc, $out) = _run($root, 'announce-multi --sync --write');
+  my ($rc, $out) = _run($root, 'announce-multi --create');
   is($rc, 0, 'succeeds') or diag $out;
   like($out, qr/^Wrote \Q$path\E$/m, 'reports the write');
   is(_slurp_raw("$root/$path"), _stdout($root, 'announce-multi CVE-1900-9902 CVE-1900-9903'), 'same text');
-  ($rc, $out) = _run($root, 'announce-multi --sync --write');
+  ($rc, $out) = _run($root, 'announce-multi --sync');
   like($out, qr/^Unchanged \Q$path\E$/m, 're-running is a no-op');
 };
 
 subtest 'a new draft replaces the old batch' => sub {
   my $root = _repo();
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
-  _run($root, 'announce-multi --sync --write');
+  _run($root, 'announce-multi --create');
   _seed($root, 'CVE-1900-9904');
-  my ($rc, $out) = _run($root, 'announce-multi --sync --write');
+  my ($rc, $out) = _run($root, 'announce-multi --sync');
   is($rc, 0, 'succeeds') or diag $out;
   like($out, qr/^Wrote \Q$mojo\E--CVE-1900-9902\+9903\+9904\.txt$/m, 'writes the new set');
   like($out, qr/^Removed \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m, 'reports the removal');
@@ -65,9 +66,9 @@ subtest 'a new draft replaces the old batch' => sub {
 subtest 'a dropped draft removes the batch' => sub {
   my $root = _repo();
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
-  _run($root, 'announce-multi --sync --write');
+  _run($root, 'announce-multi --create');
   unlink "$root/cves/CVE-1900-9903.yaml" or die "unlink failed: $!";
-  my ($rc, $out) = _run($root, 'announce-multi --sync --write');
+  my ($rc, $out) = _run($root, 'announce-multi --sync');
   is($rc, 0, 'succeeds') or diag $out;
   like($out, qr/^Removed \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m, 'removes the obsolete batch');
   like($out, qr/^Skipped Mojolicious-Plugin-CaptchaPNG: only CVE-1900-9902 /m, 'reports the single CVE');
@@ -78,7 +79,7 @@ subtest 'batches of published CVEs are left alone' => sub {
   my $root = _repo(qw(CVE-1900-9900 CVE-1900-9901));
   _run($root, 'announce-multi CVE-1900-9900 CVE-1900-9901 --write');
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
-  my ($rc, $out) = _run($root, 'announce-multi --sync --write');
+  my ($rc, $out) = _run($root, 'announce-multi --create');
   is($rc, 0, 'succeeds') or diag $out;
   ok(-f "$root/$mojo--CVE-1900-9900+9901.txt", 'published-only batch kept');
   unlike($out, qr/^Removed/m, 'nothing removed');
@@ -94,7 +95,7 @@ subtest 'an explicit set that is already merged is reported, not rewritten' => s
   my $path = "$mojo--CVE-1900-9900+9901.txt";
   my $before = _slurp_raw("$root/$path");
   _edit("$root/cves/CVE-1900-9901.yaml", sub { s/which is insecure\./which is insecure. Updated./ or die 'no match' });
-  my ($rc, $out) = _run($root, 'announce-multi --sync CVE-1900-9900 CVE-1900-9901 --write');
+  my ($rc, $out) = _run($root, 'announce-multi --sync CVE-1900-9900 CVE-1900-9901');
   is($rc, 0, 'succeeds') or diag $out;
   like($out, qr/^Already merged \Q$path\E$/m, 'reports the merged batch');
   is(_slurp_raw("$root/$path"), $before, 'merged batch untouched');
@@ -103,7 +104,7 @@ subtest 'an explicit set that is already merged is reported, not rewritten' => s
 subtest 'explicit IDs join the branch CVEs' => sub {
   my $root = _repo('CVE-1900-9901');
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
-  my ($rc, $out) = _run($root, 'announce-multi --sync CVE-1900-9901 --write');
+  my ($rc, $out) = _run($root, 'announce-multi --create CVE-1900-9901');
   is($rc, 0, 'succeeds') or diag $out;
   like($out, qr/^Wrote \Q$mojo\E--CVE-1900-9901\+9902\+9903\.txt$/m, 'merged CVE included on request');
 };
@@ -112,11 +113,32 @@ subtest 'one CVE per distribution is reported, not batched' => sub {
   my $root = _repo();
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
   _seed($root, 'CVE-1900-9905', 't/var/CVE-2025-40906.yaml');
-  my ($rc, $out) = _run($root, 'announce-multi --sync --write');
+  my ($rc, $out) = _run($root, 'announce-multi --create');
   is($rc, 0, 'succeeds') or diag $out;
   like($out, qr/^Wrote \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m, 'batches the pair');
   like($out, qr/^Skipped BSON-XS: only CVE-1900-9905 /m, 'reports the single');
   is_deeply([glob("$root/announce-multi/BSON-XS--*")], [], 'no BSON-XS batch');
+};
+
+subtest '--sync does not create batches' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  my ($rc, $out) = _run($root, 'announce-multi --sync');
+  is($rc, 0, 'succeeds') or diag $out;
+  like($out, qr/^Not batched Mojolicious-Plugin-CaptchaPNG: CVE-1900-9902, CVE-1900-9903 \(opt in with --create\)$/m,
+    'explains how to opt in');
+  ok(!-e "$root/announce-multi", 'nothing written');
+};
+
+subtest '--write is accepted and --dry-run is scoped' => sub {
+  my $root = _repo();
+  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  my ($rc, $out) = _run($root, 'announce-multi --create --write');
+  is($rc, 0, '--write with --create is harmless') or diag $out;
+  like($out, qr/^Wrote \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m, 'writes');
+  ($rc, $out) = _run($root, 'announce-multi --dry-run');
+  isnt($rc, 0, '--dry-run alone is refused');
+  like($out, qr/--dry-run only applies to --sync and --create/, 'explains');
 };
 
 subtest 'errors' => sub {
@@ -141,12 +163,12 @@ subtest 'errors' => sub {
   like($out, qr/CVE-1900-9999/, 'names it');
 
   _write_raw("$root/cves/CVE-1900-9906.yaml", "cpansec: [\n");
-  ($rc, $out) = _run($root, 'announce-multi --sync --write');
+  ($rc, $out) = _run($root, 'announce-multi --create');
   isnt($rc, 0, 'refuses to write with a broken draft');
   like($out, qr/Cannot sync: these CVEs cannot be loaded/, 'explains');
   like($out, qr/CVE-1900-9906/, 'names the broken draft');
   ok(!-e "$root/announce-multi", 'nothing written');
-  ($rc, $out) = _run($root, 'announce-multi --sync');
+  ($rc, $out) = _run($root, 'announce-multi --create --dry-run');
   is($rc, 0, 'preview still works') or diag $out;
   like($out, qr/Skipped \(cannot be loaded\):\n  CVE-1900-9906/, 'preview reports the broken draft');
 };

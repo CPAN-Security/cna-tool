@@ -47,16 +47,15 @@ subtest 'new CVEs without a batch' => sub {
   like($out, qr/^  Mojolicious-Plugin-CaptchaPNG +CVE-1900-9902, CVE-1900-9903$/m, 'groups by distribution');
   like($out, qr/^  BSON-XS +CVE-1900-9905 \(only one, nothing to batch\)$/m, 'notes single CVEs');
   like($out, qr{^  1 CVE under encrypted/ skipped \(batches are public-only\)$}m, 'counts encrypted drafts');
-  like($out, qr/^Next:\n  cpansec-cna announce-multi --sync --write\n      writes \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m,
-    'suggests the sync');
-  like($out, qr/\(batches are optional\)/, 'batches stay optional');
+  like($out, qr/^Next:\n  cpansec-cna announce-multi --create   \(batches are optional\)\n      writes \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m,
+    'suggests creating a batch');
   ok(!-e "$root/announce-multi", 'writes nothing');
 };
 
 subtest 'in sync, then stale' => sub {
   my $root = _repo();
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
-  _run($root, 'announce-multi --sync --write');
+  _run($root, 'announce-multi --create');
   my $path = "$mojo--CVE-1900-9902+9903.txt";
   my ($rc, $out) = _run($root, 'announce-multi');
   like($out, qr/^  \Q$path\E\n      unmerged, in sync$/m, 'in sync');
@@ -66,18 +65,20 @@ subtest 'in sync, then stale' => sub {
   ($rc, $out) = _run($root, 'announce-multi');
   like($out, qr/^      unmerged, stale: content out of date$/m, 'stale');
   like($out, qr/^      writes \Q$path\E$/m, 'suggests rewriting it');
+  like($out, qr/^  cpansec-cna announce-multi --sync$/m, 'suggests --sync');
 };
 
 subtest 'out of sync' => sub {
   my $root = _repo();
   _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
-  _run($root, 'announce-multi --sync --write');
+  _run($root, 'announce-multi --create');
   _seed($root, 'CVE-1900-9904');
   my ($rc, $out) = _run($root, 'announce-multi');
   like($out, qr/^      unmerged, out of sync: missing CVE-1900-9904$/m, 'names the missing CVE');
   like($out, qr/^      writes \Q$mojo\E--CVE-1900-9902\+9903\+9904\.txt$/m, 'suggests the new batch');
   like($out, qr/^      removes \Q$mojo\E--CVE-1900-9902\+9903\.txt$/m, 'and the removal');
   unlike($out, qr/batches are optional/, 'no optional note when a batch exists');
+  like($out, qr/^  cpansec-cna announce-multi --sync$/m, 'suggests --sync');
 };
 
 subtest 'published-only batches are listed but left alone' => sub {
@@ -112,12 +113,13 @@ subtest 'no merged ref' => sub {
 
 subtest 'invalid draft' => sub {
   my $root = _repo();
-  _seed($root, $_) for qw(CVE-1900-9902 CVE-1900-9903);
+  make_path("$root/cves");
   _write_raw("$root/cves/CVE-1900-9906.yaml", "cpansec: [\n");
   my ($rc, $out) = _run($root, 'announce-multi');
   is($rc, 0, 'exits 0') or diag $out;
   like($out, qr/^  CVE-1900-9906: cannot be loaded: /m, 'lists the broken draft');
   like($out, qr/^  Fix the CVEs that cannot be loaded, then sync\.$/m, 'says to fix it');
+  unlike($out, qr/Nothing to batch/, 'no contradictory advice');
 };
 
 subtest '--write without CVEs is still a usage error' => sub {
