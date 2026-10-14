@@ -3,8 +3,24 @@ use v5.42;
 
 use File::Copy qw(copy);
 use File::Path qw(make_path);
-use File::Temp qw(tempdir);
+use File::Temp qw(tempdir tempfile);
 use Test::More;
+
+my ($gitcfg_fh, $gitcfg) = tempfile();
+print {$gitcfg_fh} <<'GITCONFIG';
+[user]
+  name = CNA Test
+  email = cna-test@example.invalid
+[init]
+  defaultBranch = main
+[commit]
+  gpgsign = false
+GITCONFIG
+close($gitcfg_fh);
+$ENV{GIT_CONFIG_GLOBAL} = $gitcfg;
+$ENV{GIT_CONFIG_SYSTEM} = $gitcfg;
+$ENV{GIT_CONFIG_NOSYSTEM} = 1;
+$ENV{GIT_TERMINAL_PROMPT} = 0;
 
 my $cna = 'scripts/cna';
 my $batch = 'announce-multi/Mojolicious-Plugin-CaptchaPNG--CVE-1900-9901+9902.txt';
@@ -33,6 +49,31 @@ subtest '--write' => sub {
   is($rc, 0, 'succeeds') or diag $out;
   like($out, qr/^Wrote \Q$batch\E$/m, 'reports the canonical batch path');
   is(_slurp_raw("$root/$batch"), $stdout, 'file matches stdout output');
+};
+
+subtest 'a merged batch is not silently overwritten' => sub {
+  my $root = _root();
+  system('git', 'init', '-q', '-b', 'main', $root) == 0 or die 'git init failed';
+  _run($root, 'announce-multi CVE-1900-9901 CVE-1900-9902 --write');
+  system('git', '-C', $root, 'add', '-A') == 0 or die 'git add failed';
+  system('git', '-C', $root, 'commit', '-q', '-m', 'batch') == 0 or die 'git commit failed';
+  my $before = _slurp_raw("$root/$batch");
+
+  my $yaml = "$root/cves/CVE-1900-9902.yaml";
+  my $content = _slurp_raw($yaml);
+  $content =~ s/which is insecure\./which is insecure. Updated./ or die 'no match';
+  open(my $fh, '>:raw', $yaml) or die "Cannot write $yaml: $!";
+  print {$fh} $content;
+  close($fh);
+
+  my ($rc, $out) = _run($root, 'announce-multi CVE-1900-9901 CVE-1900-9902 --write');
+  isnt($rc, 0, 'refuses');
+  like($out, qr/Refusing to overwrite/, 'says why');
+  is(_slurp_raw("$root/$batch"), $before, 'file unchanged');
+
+  ($rc, $out) = _run($root, 'announce-multi CVE-1900-9901 CVE-1900-9902 --write --force');
+  is($rc, 0, '--force overwrites') or diag $out;
+  like(_slurp_raw("$root/$batch"), qr/Updated\./, 'file updated');
 };
 
 subtest '--output' => sub {

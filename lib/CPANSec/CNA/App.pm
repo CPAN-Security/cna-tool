@@ -90,7 +90,7 @@ Commands:
                                     Validate/lint and print generated JSON to stdout
   announce [CVE-ID] [--write|--output path]
                                     Render announcement text to stdout or file
-  announce-multi <CVE-ID> <CVE-ID>... [--write|--output path]
+  announce-multi <CVE-ID> <CVE-ID>... [--write|--output path] [--force]
                                     Render one announcement covering several CVEs
                                     of the same distribution (--write: announce-multi/)
   edit [CVE-ID]
@@ -292,10 +292,12 @@ UNVERIFIED
     my $target_cve = $positionals[0] // $default_cve;
     my @yaml_files = $self->_resolve_check_targets($target_cve, $opt{changed});
     my @multi_files = $self->_resolve_multi_check_targets($target_cve, $opt{changed}, \@yaml_files);
-    if (!@yaml_files && !@multi_files) {
+    if (!@yaml_files && !@multi_files && !$opt{pr_policy}) {
       print "No CVE YAML files to check.\n";
       return 0;
     }
+
+    $self->_warn_if_no_merged_ref if @multi_files && !$opt{pr_policy};
 
     my ($findings_by_file, $errors, $warnings) = $self->_lint_and_validate_files(@yaml_files);
     my ($multi_findings, $multi_errors)
@@ -459,12 +461,13 @@ UNVERIFIED
   }
 
   method _cmd_announce_multi (@args) {
-    my %opt = (write => 0);
+    my %opt = (write => 0, force => 0);
     my @ids;
 
     while (@args) {
       my $a = shift @args;
       if ($a eq '--write') { $opt{write} = 1; next; }
+      if ($a eq '--force') { $opt{force} = 1; next; }
       if ($a =~ /^--output=(.+)$/) { $opt{output} = $1; next; }
       if ($a eq '--output') { $opt{output} = shift(@args) // die "--output requires value\n"; next; }
       die "Unknown option '$a'\n" if $a =~ /^-/;
@@ -472,7 +475,7 @@ UNVERIFIED
     }
 
     die "announce-multi needs at least 2 CVEs; use 'announce $ids[0]' for a single CVE.\n" if @ids == 1;
-    die "Usage: cna announce-multi <CVE-ID> <CVE-ID>... [--write|--output path]\n" unless @ids >= 2;
+    die "Usage: cna announce-multi <CVE-ID> <CVE-ID>... [--write|--output path] [--force]\n" unless @ids >= 2;
     die "--write and --output cannot be combined\n" if $opt{write} && defined $opt{output};
 
     my ($text, $filename) = $self->_render_announce_multi(@ids);
@@ -484,6 +487,8 @@ UNVERIFIED
     }
 
     my $out = $opt{output} // File::Spec->catfile('announce-multi', $filename);
+    die "Refusing to overwrite $out: it is merged and records what was sent. Write a new batch instead, or pass --force.\n"
+      if !$opt{force} && -e $out && $self->_git_path_exists_at_ref($self->_merged_ref, $out);
     if ($opt{write}) {
       # Merged batches are frozen, so an overlap can be legitimate: report it
       # and leave any cleanup to the operator.
@@ -819,9 +824,23 @@ UNVERIFIED
     return defined($rc) && $rc == 0 ? 'origin/main' : 'main';
   }
 
+  # Without a merged ref every batch is checked as unmerged; say so once
+  # (shallow CI checkouts). Outside a git work tree nothing is merged.
+  method _warn_if_no_merged_ref () {
+    my ($rc) = $self->_run_cmd_capture_with_rc('git', 'rev-parse', '--is-inside-work-tree');
+    return unless defined($rc) && $rc == 0;
+    for my $ref (qw(origin/main main)) {
+      my ($ref_rc) = $self->_run_cmd_capture_with_rc('git', 'rev-parse', '--verify', '--quiet', $ref);
+      return if defined($ref_rc) && $ref_rc == 0;
+    }
+    print STDERR "Warning: neither origin/main nor main exists; merged announce-multi batches cannot be recognised "
+      . "and are checked as unmerged (fetch with fetch-depth: 0).\n";
+  }
+
   # Problems as [finding id, message] pairs. A merged batch is a record of what
   # was sent: published CVEs can be updated (or even re-ordered or rejected)
-  # later, so once merged only its filename is checked.
+  # later, and renaming it is forbidden, so once merged it only needs a name
+  # that parses and names at least 2 distinct CVEs.
   method _multi_file_problems ($path, $merged_ref) {
     my $name = basename($path);
     my ($distribution, @ids) = parse_batch_filename($name);
@@ -831,11 +850,12 @@ UNVERIFIED
     return ['multi_filename', "$name must name at least 2 distinct CVE IDs."]
       if @ids < 2 || grep { $seen{$_}++ } @ids;
 
+    return () if $self->_git_path_exists_at_ref($merged_ref, $path);
+
     my @problems;
     my $canonical = batch_filename($distribution, @ids);
     push @problems, ['multi_filename', "$name is not in canonical form; expected $canonical."]
       if $name ne $canonical;
-    return @problems if $self->_git_path_exists_at_ref($merged_ref, $path);
 
     my @cves;
     for my $id (@ids) {

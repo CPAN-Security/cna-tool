@@ -133,6 +133,33 @@ subtest 'merged means origin/main when there is no local main' => sub {
   is($rc, 0, 'a batch on origin/main counts as merged') or diag $out;
 };
 
+subtest 'a merged batch with a non-canonical name stays green' => sub {
+  my $root = _init_git_repo('main');
+  _seed($root, $_) for qw(CVE-1900-9901 CVE-1900-9902);
+  _run($root, 'announce-multi CVE-1900-9901 CVE-1900-9902 --write');
+  _commit_all($root, 'batch on main');
+  my $odd = 'announce-multi/Mojolicious-Plugin-CaptchaPNG--CVE-1900-9902+CVE-1900-9901.txt';
+  system('git', '-C', $root, 'mv', $batch, $odd) == 0 or die 'git mv failed';
+  _commit_all($root, 'rename');
+
+  my ($rc, $out) = _run($root, 'check CVE-1900-9901');
+  is($rc, 0, 'check passes') or diag $out;
+  unlike($out, qr/multi_filename/, 'no filename finding');
+};
+
+subtest 'warns when no merged ref exists' => sub {
+  my $root = _init_git_repo('trunk');
+  _seed($root, $_) for qw(CVE-1900-9901 CVE-1900-9902);
+  _run($root, 'announce-multi CVE-1900-9901 CVE-1900-9902 --write');
+  _commit_all($root, 'batch on trunk');
+  my ($rc, $out) = _run($root, 'check CVE-1900-9901');
+  like($out, qr/Warning: neither origin\/main nor main exists/, 'warns');
+
+  my $plain = _root_with_batch();
+  ($rc, $out) = _run($plain, 'check CVE-1900-9901');
+  unlike($out, qr/neither origin\/main nor main/, 'no warning outside a git work tree');
+};
+
 subtest '--changed covers a batch changed on its own' => sub {
   my $root = _init_git_repo('main');
   _seed($root, $_) for qw(CVE-1900-9901 CVE-1900-9902);

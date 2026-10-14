@@ -118,11 +118,13 @@ The tooling is being prepared to move to a separate project. This guide is the h
     the CVE for `check CVE`, plus changed ones with `--changed`. Findings
     `multi_filename`, `multi_cve_missing`, `multi_cve_invalid`, `multi_distribution` and
     `multi_mismatch` are blocking. A merged batch (on `origin/main`, else `main`, or the PR
-    base under `--pr-policy`) only gets the filename checks: it is a record of what was
-    sent, and its CVEs may be updated afterwards.
+    base under `--pr-policy`) only gets the "filename parses and names at least 2 distinct
+    CVEs" check (not the canonical-name check, since renaming a merged batch is forbidden): it
+    is a record of what was sent, and its CVEs may be updated afterwards.
   - Whether a batch is merged is read from `origin/main`, else local `main`. A CI job that
     runs `check --changed` must fetch one of them (`fetch-depth: 0`), or merged batches are
-    re-checked as unmerged and may report a false `multi_mismatch`.
+    re-checked as unmerged and may report a false `multi_mismatch`. `check` warns on stderr when neither exists (inside
+    a git work tree, with batch files to check).
 
 ### 4. Build or Emit JSON
 - Build/writes file:
@@ -144,6 +146,7 @@ The tooling is being prepared to move to a separate project. This guide is the h
 - `cpansec-cna announce-multi CVE-A CVE-B ...` (stdout)
 - `cpansec-cna announce-multi CVE-A CVE-B ... --write` (to `announce-multi/`)
 - `cpansec-cna announce-multi CVE-A CVE-B ... --output <path>`
+- `--force` is needed only to overwrite a batch file that is already merged.
 - Optional: one email for several CVEs of the same primary distribution, e.g. for
   oss-security. Always in addition to the per-CVE `announce/<CVE>.txt` files.
 - Output: subject and title `<Distribution> for Perl: N CVEs`, an index of CVE IDs with
@@ -154,7 +157,9 @@ The tooling is being prepared to move to a separate project. This guide is the h
 - The filename lists every ID, year written once per year:
   `announce-multi/<Dist>--CVE-2025-40906+CVE-2026-1001+1002.txt`.
   `CPANSec::CVE::BatchName` builds and parses it.
-- `--write` notes other batch files covering the same CVEs and never removes them.
+- `--write` notes other batch files covering the same CVEs and never removes them. It
+  overwrites an unmerged file without prompting but refuses a merged one (a frozen record of
+  what was sent) unless `--force` is given.
 
 ### 6. JSON -> YAML Import
 - `cpansec-cna import CVE-YYYY-NNNN`
@@ -438,7 +443,7 @@ When changing schema/lint:
 - `cpansec-cna build [CVE] [--strict]`
 - `cpansec-cna emit [CVE] [--strict] [--cna-container-only]`
 - `cpansec-cna announce [CVE] [--write|--output PATH]`
-- `cpansec-cna announce-multi <CVE> <CVE>... [--write|--output PATH]`
+- `cpansec-cna announce-multi <CVE> <CVE>... [--write|--output PATH] [--force]`
 - `cpansec-cna import <CVE|PATH.json> [--force] [--no-guard]`
 - `cpansec-cna reconcile [CVE] [--api-base URL] [--verbose]`
 - Global:

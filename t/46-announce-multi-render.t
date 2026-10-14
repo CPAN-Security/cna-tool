@@ -63,6 +63,10 @@ subtest 'rejections' => sub {
   eval { $multi->render($first, _record('t/var/CVE-2025-40906.yaml', 'CVE-1900-9903')) };
   like($@, qr/share the primary distribution Mojolicious-Plugin-CaptchaPNG; differs for CVE-1900-9903/,
     'different primary distributions');
+  my $nameless = dclone($first);
+  delete $nameless->{containers}{cna}{affected}[0]{packageName};
+  eval { $multi->render($nameless, $second) };
+  like($@, qr/Cannot determine the primary distribution of CVE-1900-9901/, 'no primary distribution');
 };
 
 done_testing();

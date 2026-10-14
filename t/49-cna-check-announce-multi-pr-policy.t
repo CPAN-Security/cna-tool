@@ -60,6 +60,16 @@ subtest 'a merged batch must not be removed' => sub {
   like($out, qr/must not be removed once merged/, 'explains it');
 };
 
+subtest 'removing a merged batch is caught when nothing else is targeted' => sub {
+  my ($root, $base) = _base(with_batch => 1);
+  system('git', '-C', $root, 'switch', '-q', '-c', 'work') == 0 or die 'switch failed';
+  system('git', '-C', $root, 'rm', '-q', $batch) == 0 or die 'git rm failed';
+  system('git', '-C', $root, 'commit', '-q', '-m', 'remove batch') == 0 or die 'commit failed';
+  my ($rc, $out) = _run($root, "check --changed --pr-policy --base-sha $base");
+  is($rc, 1, 'fails') or diag $out;
+  like($out, qr/must not be removed once merged/, 'explains it');
+};
+
 subtest 'updating a CVE in a merged batch is allowed' => sub {
   my ($root, $base) = _base(with_batch => 1);
   _edit("$root/cves/CVE-1900-9902.yaml", sub { s/which is insecure\./which is insecure. Updated./ or die 'no match' });

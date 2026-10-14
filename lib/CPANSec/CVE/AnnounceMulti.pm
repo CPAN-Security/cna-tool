@@ -27,6 +27,10 @@ class CPANSec::CVE::AnnounceMulti {
     die "Duplicate CVE IDs in multi-CVE announcement\n" if keys %by_id != @cves;
     my @sorted = @by_id{ sort_cve_ids(keys %by_id) };
 
+    my ($nameless) = grep { !length $self->primary_distribution($_) } @sorted;
+    die "Cannot determine the primary distribution of $nameless->{cveMetadata}{cveId} (no affected[0].packageName)\n"
+      if $nameless;
+
     my $distribution = $self->primary_distribution($sorted[0]);
     my @others = map { $_->{cveMetadata}{cveId} }
       grep { $self->primary_distribution($_) ne $distribution } @sorted;
