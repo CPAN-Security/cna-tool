@@ -167,8 +167,11 @@ The tooling is being prepared to move to a separate project. This guide is the h
 - `--force` is needed only to overwrite a batch file that is already merged.
 - Optional: one email for several CVEs of the same primary distribution, e.g. for
   oss-security. Always in addition to the per-CVE `announce/<CVE>.txt` files.
-- Output: subject and title `<Distribution> for Perl: N CVEs`, an index of CVE IDs with
-  their full titles, then each CVE's normal announcement unchanged minus its `Subject:` line.
+- Output: subject `<Module> <range> for Perl (N CVEs)` (module from the primary `affected`
+  entry), an index of CVE IDs with their full titles, then each CVE's normal announcement
+  unchanged minus its `Subject:` line. No title line in the body. The range is the phrase all
+  CVEs share, else `before`/`through` their common upper bound when one starts at 0, else
+  omitted (`Text::CSV_XS for Perl (8 CVEs)`): it is never computed by comparing versions.
 - At least 2 CVEs, sorted numerically by ID. All must share the primary distribution (the
   first `affected` entry, so dual-life records batch on it). Public-only: refuses any CVE
   under `encrypted/`.

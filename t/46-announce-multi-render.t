@@ -16,12 +16,10 @@ my $multi = CPANSec::CVE::AnnounceMulti->new;
 my $first = _record('t/var/CVE-2025-40916.yaml', 'CVE-1900-9901');
 my $second = _record('t/var/CVE-2025-40916.yaml', 'CVE-1900-9902');
 
-subtest 'header, index and unchanged bodies' => sub {
+subtest 'subject, index and unchanged bodies' => sub {
   my $header = <<'EOT';
-Subject: Mojolicious-Plugin-CaptchaPNG for Perl: 2 CVEs
+Subject: Mojolicious::Plugin::CaptchaPNG version 1.05 for Perl (2 CVEs)
 
-
-Mojolicious-Plugin-CaptchaPNG for Perl: 2 CVEs
 
 CVE-1900-9901
   Mojolicious::Plugin::CaptchaPNG version 1.05 for Perl uses a weak
@@ -51,8 +49,42 @@ subtest 'dual-life records batch on their primary distribution' => sub {
     _record('t/var/CVE-1900-9997.yaml', 'CVE-1900-9997'),
     _record('t/var/CVE-1900-9989.yaml', 'CVE-1900-9989'),
   );
-  like($text, qr/\ASubject: Encode for Perl: 2 CVEs\n/, 'titled by the primary distribution');
+  like($text, qr/\ASubject: Encode for Perl \(2 CVEs\)\n/, 'titled by the primary distribution');
   like($text, qr/^\s*Distribution:\s+perl$/m, 'the perl core block of the dual-life record is kept');
+};
+
+subtest 'subject version range' => sub {
+  my $subject = sub (@ranges) {
+    my $id = 9900;
+    my @cves = map {
+      my $cve = dclone($first);
+      $cve->{cveMetadata}{cveId} = 'CVE-1900-' . ++$id;
+      $cve->{containers}{cna}{affected}[0]{versions} = [map { { versionType => 'custom', status => 'affected', %$_ } } @$_];
+      $cve;
+    } @ranges;
+    my ($line) = $multi->render(@cves) =~ /\ASubject: ([^\n]*)/;
+    return $line;
+  };
+  my $m = 'Mojolicious::Plugin::CaptchaPNG';
+
+  is($subject->([{ version => '0', lessThan => '1.65' }], [{ version => '0', lessThan => '1.65' }]),
+    "$m versions before 1.65 for Perl (2 CVEs)", 'a shared range');
+  is($subject->([{ version => '0', lessThan => '1.65' }], [{ version => '1.46', lessThan => '1.65' }],
+      [{ version => '0', lessThan => '1.65' }]),
+    "$m versions before 1.65 for Perl (3 CVEs)", 'a narrower start is covered by one starting at 0');
+  is($subject->([{ version => '0', lessThanOrEqual => '2.1' }], [{ version => '1.2', lessThanOrEqual => '2.1' }]),
+    "$m versions through 2.1 for Perl (2 CVEs)", 'a shared inclusive upper bound');
+  is($subject->([{ version => '1.0', lessThan => '1.65' }], [{ version => '1.46', lessThan => '1.65' }]),
+    "$m for Perl (2 CVEs)", 'different non-zero starts: no range');
+  is($subject->([{ version => '0', lessThan => '1.65' }], [{ version => '0', lessThan => '1.70' }]),
+    "$m for Perl (2 CVEs)", 'different upper bounds: no range');
+  is($subject->([{ version => '0', lessThan => '1.65' }], [{ version => '0', lessThanOrEqual => '1.65' }]),
+    "$m for Perl (2 CVEs)", 'exclusive and inclusive bounds: no range');
+  is($subject->([{ version => '0', lessThan => '1.2' }, { version => '1.5', lessThan => '1.65' }],
+      [{ version => '0', lessThan => '1.65' }]),
+    "$m for Perl (2 CVEs)", 'several ranges in one CVE: no range');
+  is($subject->([{ version => '0', lessThan => '*' }], [{ version => '1.2', lessThan => '*' }]),
+    "$m for Perl (2 CVEs)", 'no fixed version: no range');
 };
 
 subtest 'rejections' => sub {

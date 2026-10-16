@@ -117,9 +117,8 @@ CPANSec's own Net::BitTorrent and Crypt::OpenSSL::X509 batches).
 ### Format
 
 ```text
-Subject: Foo-Bar for Perl: 3 CVEs
+Subject: Foo::Bar for Perl (3 CVEs)
 
-Foo-Bar for Perl: 3 CVEs
 
 CVE-2026-1001
   Foo::Bar versions before 2.4 for Perl allow path traversal via crafted
@@ -140,9 +139,14 @@ CVE-2026-1001                                        CPAN Security Group
 [... unchanged single announcement, minus its Subject: line ...]
 ```
 
-- Subject and title are the same string: `<primary distribution> for Perl: N CVEs`.
-  Fully mechanical; no hand-written issue summary, no aggregated version range.
-- The header is just the title line and an index: CVE ID on its own line,
+- Amended 2026-10-17: the subject is `<module> <range> for Perl (N CVEs)`, e.g.
+  `Text::CSV_XS versions before 1.65 for Perl (8 CVEs)`, and the body has no title line.
+  The module is the primary `affected` entry's first module. The range is the phrase every
+  CVE shares, else `before`/`through` the common upper bound when one CVE starts at 0
+  (covering narrower starts such as `from 1.46 before 1.65`), else omitted, as in the
+  example above whose upper bounds differ. Versions are never compared, so a range with
+  gaps is never overstated. Fully mechanical; no hand-written issue summary.
+- The header is just the Subject line and an index: CVE ID on its own line,
   full CVE title indented below, wrapped at 72 columns. No underline, no
   intro sentence, no box. The first `====` banner marks the end of the header.
 - Titles already carry module and version range, so the index needs no

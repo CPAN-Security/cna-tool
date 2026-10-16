@@ -29,7 +29,7 @@ subtest 'stdout' => sub {
   my $root = _root();
   my ($rc, $out) = _run($root, 'announce-multi CVE-1900-9902 CVE-1900-9901');
   is($rc, 0, 'succeeds') or diag $out;
-  like($out, qr/\ASubject: Mojolicious-Plugin-CaptchaPNG for Perl: 2 CVEs\n/, 'batch subject');
+  like($out, qr/\ASubject: Mojolicious::Plugin::CaptchaPNG version 1.05 for Perl \(2 CVEs\)\n/, 'batch subject');
 
   my ($header) = split /^={72}$/m, $out, 2;
   like($header, qr/^CVE-1900-9901\n.*^CVE-1900-9902\n/ms, 'index sorted by CVE ID');
