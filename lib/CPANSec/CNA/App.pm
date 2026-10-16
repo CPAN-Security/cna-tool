@@ -54,6 +54,9 @@ class CPANSec::CNA::App {
     if ($cmd eq 'announce-multi') {
       return $self->_cmd_announce_multi(@argv);
     }
+    if ($cmd eq 'list-cves') {
+      return $self->_cmd_list_cves(@argv);
+    }
     if ($cmd eq 'edit') {
       return $self->_cmd_edit(@argv);
     }
@@ -97,6 +100,9 @@ Commands:
   announce-multi [--create|--sync] [CVE-ID...] [--dry-run]
                                     --create: start batches for this branch's new CVEs;
                                     --sync: update the branch's batches (writes; --dry-run previews)
+  list-cves --branch [--ids]
+                                    List CVEs this branch touches (committed, staged,
+                                    unstaged or untracked) with their changed files
   edit [CVE-ID]
                                     Open CVE YAML in $VISUAL/$EDITOR (or vi)
   import [CVE-ID|path.json] [--force] [--no-guard]
@@ -862,6 +868,62 @@ UNVERIFIED
     print "Wrote $yaml_path\n";
     print "Round-trip guard: ", ($opt{guard} ? "enabled" : "disabled"), "\n";
     return 0;
+  }
+
+  method _cmd_list_cves (@args) {
+    my %opt = (branch => 0, ids => 0);
+    for my $a (@args) {
+      if ($a eq '--branch') { $opt{branch} = 1; next; }
+      if ($a eq '--ids') { $opt{ids} = 1; next; }
+      die "Unknown option '$a'\n" if $a =~ /^-/;
+      die "Unexpected argument '$a'\n";
+    }
+    die "Usage: list-cves --branch [--ids]\n" unless $opt{branch};
+
+    my $ref = $self->_existing_merged_ref
+      // die "list-cves --branch needs origin/main or main to compare against.\n";
+    my ($base) = $self->_run_cmd_capture('git', 'merge-base', 'HEAD', $ref);
+    die "Cannot find where this branch split from $ref.\n" unless $base;
+    chomp $base;
+
+    my $by_id = $self->_branch_cve_changes($base);
+    my @ids = sort_cve_ids(keys %$by_id);
+    if ($opt{ids}) {
+      say for @ids;
+      return 0;
+    }
+    unless (@ids) {
+      say "No CVEs changed on this branch (since $ref).";
+      return 0;
+    }
+    for my $id (@ids) {
+      say $id;
+      say "  $_->[0] $_->[1]" for sort { $a->[1] cmp $b->[1] } $by_id->{$id}->@*;
+    }
+    return 0;
+  }
+
+  # CVE ID => [[status, path], ...] for every CVE file the working tree changes
+  # against $base: git status letters (A, M, D, T), and ? for untracked files.
+  # Batch files count for every CVE their name lists.
+  method _branch_cve_changes ($base) {
+    my @changes = map { chomp; [split /\t/, $_, 2] }
+      $self->_run_cmd_capture('git', 'diff', '--name-status', '--no-renames', '--relative', $base, '--');
+    push @changes, map { chomp; ['?', $_] }
+      $self->_run_cmd_capture('git', 'ls-files', '--others', '--exclude-standard');
+
+    my %by_id;
+    for my $change (@changes) {
+      my ($status, $path) = @$change;
+      my @ids = $path =~ m{^(?:cves|encrypted)/(CVE-\d{4}-\d{4,19})\.(?:yaml|json)$}
+        ? $1 : $path =~ m{^announce/(CVE-\d{4}-\d{4,19})\.txt$}
+        ? $1 : $path =~ m{^reserved/(CVE-\d{4}-\d{4,19})$}
+        ? $1 : $path =~ m{^announce-multi/([^/]+\.txt)$}
+        ? do { my (undef, @covered) = parse_batch_filename($1); @covered }
+        : ();
+      push $by_id{$_}->@*, [substr($status, 0, 1), $path] for @ids;
+    }
+    return \%by_id;
   }
 
   method _cmd_edit (@args) {

@@ -185,6 +185,17 @@ The tooling is being prepared to move to a separate project. This guide is the h
   one-line note on STDERR when the batch needs `announce-multi --sync`. Never shown without a
   branch batch, in encrypted contexts, or without a merged ref; exit codes are unaffected.
 
+### 5c. Listing a Branch's CVEs
+- `cpansec-cna list-cves --branch`: every CVE whose files the working tree changes against
+  the point where the branch split from `origin/main` (else `main`), so later work on main
+  is not listed. Covers committed, staged, unstaged and untracked changes.
+- Files counted: `cves/` and `encrypted/` `<CVE>.yaml|json`, `announce/<CVE>.txt`,
+  `reserved/<CVE>`, and `announce-multi/` batches (for every CVE their name lists). Only
+  paths are read, never file contents.
+- Output: each CVE ID, then its changed files with a git status letter (`A`, `M`, `D`,
+  `T`, `?` for untracked). `--ids` prints bare IDs, one per line, for scripting.
+- Refuses without `origin/main` or `main`.
+
 ### 6. JSON -> YAML Import
 - `cpansec-cna import CVE-YYYY-NNNN`
 - Default includes round-trip guard:
@@ -421,7 +432,7 @@ Publication transition for sensitive CVEs:
 
 ## Script Inventory
 
-- `scripts/cpansec-cna`: primary workflow CLI (`init`, `check`, `build`, `emit`, `announce`, `announce-multi`, `import`, `reconcile`, `yaml-schema-path`)
+- `scripts/cpansec-cna`: primary workflow CLI (`init`, `check`, `build`, `emit`, `announce`, `announce-multi`, `list-cves`, `import`, `reconcile`, `yaml-schema-path`)
 - `scripts/cna`: short alias for the same CLI
 
 ## Migration Plan: Split Tooling from Data Repo
@@ -469,6 +480,7 @@ When changing schema/lint:
 - `cpansec-cna announce [CVE] [--write|--output PATH]`
 - `cpansec-cna announce-multi <CVE> <CVE>... [--write|--output PATH] [--force]`
 - `cpansec-cna announce-multi [--create|--sync] [CVE...] [--dry-run]` (no arguments: status)
+- `cpansec-cna list-cves --branch [--ids]`
 - `cpansec-cna import <CVE|PATH.json> [--force] [--no-guard]`
 - `cpansec-cna reconcile [CVE] [--api-base URL] [--verbose]`
 - Global:
