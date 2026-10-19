@@ -339,6 +339,7 @@ UNVERIFIED
     my $schema_errors = $self->_count_schema_errors($findings_by_file);
     my $report = $self->_render_findings($findings_by_file, $opt{format});
     print $report, "\n" if length $report;
+    $self->_print_batch_results(\@multi_files, $findings_by_file);
 
     if ($schema_errors > 0) {
       print "Summary: $errors error(s), $warnings warning(s), $schema_errors schema error(s).\n";
@@ -1067,6 +1068,19 @@ UNVERIFIED
     }
     my $r = CPANSec::CNA::Lint::Reporter::Text->new;
     return $r->render($findings_by_file);
+  }
+
+  # A passing batch has no findings and would leave no trace, so name every
+  # batch file that was checked.
+  method _print_batch_results ($files, $findings_by_file) {
+    for my $path (@$files) {
+      my @findings = @{$findings_by_file->{$path} // []};
+      my $errors = grep { ($_->{severity} // '') eq 'error' } @findings;
+      my $warnings = @findings - $errors;
+      print "Checked batch $path: ",
+        (@findings ? "$errors error(s), $warnings warning(s)" : 'OK'), "\n";
+    }
+    return;
   }
 
   method _count_schema_errors ($findings_by_file) {

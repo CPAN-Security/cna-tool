@@ -31,6 +31,7 @@ subtest 'a new batch for existing CVEs is allowed' => sub {
   my ($rc, $out) = _run($root, "check CVE-1900-9901 --pr-policy --base-sha $base");
   is($rc, 0, 'passes') or diag $out;
   unlike($out, qr/multi_/, 'no batch findings');
+  like($out, qr/^Checked batch \Q$batch\E: OK$/m, 'names the checked batch');
 };
 
 subtest 'a new stale batch is rejected' => sub {
@@ -40,6 +41,7 @@ subtest 'a new stale batch is rejected' => sub {
   my ($rc, $out) = _run($root, "check CVE-1900-9901 --pr-policy --base-sha $base");
   is($rc, 1, 'fails');
   like($out, qr/multi_mismatch/, 'compared with generated output');
+  like($out, qr/^Checked batch \Q$batch\E: 1 error\(s\), 0 warning\(s\)$/m, 'reports the batch result');
 };
 
 subtest 'a merged batch must not change' => sub {
@@ -83,6 +85,7 @@ subtest 'a CVE check ignores batches that do not name it' => sub {
   my ($rc, $out) = _run($root, "check CVE-1900-9903 --pr-policy --base-sha $base");
   is($rc, 0, 'passes') or diag $out;
   unlike($out, qr/multi_/, 'no batch findings');
+  unlike($out, qr/^Checked batch/m, 'no batch is named');
 };
 
 done_testing();

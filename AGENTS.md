@@ -121,6 +121,8 @@ The tooling is being prepared to move to a separate project. This guide is the h
     base under `--pr-policy`) only gets the "filename parses and names at least 2 distinct
     CVEs" check (not the canonical-name check, since renaming a merged batch is forbidden): it
     is a record of what was sent, and its CVEs may be updated afterwards.
+  - Each batch file checked gets a line before the summary, `Checked batch <path>: OK` or
+    `Checked batch <path>: N error(s), M warning(s)`, so a passing batch still shows in CI logs.
   - Whether a batch is merged is read from `origin/main`, else local `main`. A CI job that
     runs `check --changed` must fetch one of them (`fetch-depth: 0`), or merged batches are
     re-checked as unmerged and may report a false `multi_mismatch`. `check` warns on stderr when neither exists (inside
